@@ -1,0 +1,39 @@
+bin = idx
+
+test:
+	go test -v ./...
+
+test/ldapserver:
+	docker run --rm -p 10389:10389 -p 10636:10636 ghcr.io/rroemhild/docker-test-openldap:master
+
+install:
+	go install -tags 'sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+build:
+	go build -o ./dist/$(bin) ./cmd/$(bin)/
+
+release:
+	goreleaser release --clean
+
+run: build
+	./dist/$(bin)
+
+audit:
+	go mod verify
+	go vet ./...
+	go run honnef.co/go/tools/cmd/staticcheck@latest -checks=all,-ST1000,-U1000 ./...
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	go test -race -vet=off ./...
+
+migrate/up:
+	migrate -path ./internal/database/migrations -database "${DB_URL}" up
+
+migrate/down:
+	migrate -path ./internal/database/migrations -database "${DB_URL}" down
+
+migrate/new:
+	migrate create -ext sql -dir ./internal/database/migrations $(name)
+
+generate/sqlc:
+	cd internal/database && sqlc generate
+	cd internal/datadb && sqlc generate
