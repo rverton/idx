@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/peterbourgon/ff/v4"
-	"github.com/peterbourgon/ff/v4/ffhelp"
 )
 
 func main() {
@@ -26,7 +25,6 @@ func main() {
 		ff.WithConfigFileFlag("config"),
 		ff.WithConfigFileParser(ff.PlainParser),
 	); err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", ffhelp.Command(rootCmd))
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		os.Exit(0)
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/aes"
+	"bytes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
@@ -205,12 +206,23 @@ func deriveKey(password []byte, iterations, keyLen int) ([]byte, []byte) {
 }
 
 func readPasswordSafe() ([]byte, error) {
-	fmt.Print("Enter password to encrypt config file: ")
+	fmt.Print("Enter password: ")
 	password, err := term.ReadPassword(int(syscall.Stdin))
 	if err != nil {
-		return []byte{}, err
+		return nil, fmt.Errorf("failed to read password: %w", err)
 	}
-	fmt.Println()
+	fmt.Println() // Add a newline after password input
+
+	fmt.Print("Confirm password: ")
+	passwordConfirm, err := term.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read confirmation password: %w", err)
+	}
+	fmt.Println() // Add a newline after confirmation password input
+
+	if !bytes.Equal(password, passwordConfirm) {
+		return nil, fmt.Errorf("passwords do not match")
+	}
 
 	return password, nil
 }
