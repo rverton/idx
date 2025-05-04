@@ -1,5 +1,5 @@
 .aider*
 .env
 
-config.ini
-config.ini.enc
+config.json
+config.json.enc
