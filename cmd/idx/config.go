@@ -9,10 +9,14 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"idx/internal/targets/bitbucket" // Added Bitbucket import
+	"idx/internal/targets/gitlab"    // Added GitLab import
+	"idx/internal/targets/smb"
 	"io"
 	"log"
 	"os"
 	"syscall"
+	"time"
 
 	"golang.org/x/crypto/pbkdf2"
 
@@ -25,10 +29,10 @@ var configFileEnc = "config.json.enc"
 
 type Config struct {
 	Targets struct {
-		Smb map[string]TargetSMBConfig `json:"smb"`
+		Smb       map[string]TargetSMBConfig       `json:"smb"`
+		Bitbucket map[string]TargetBitbucketConfig `json:"bitbucket"`
+		Gitlab    map[string]TargetGitlabConfig    `json:"gitlab"`
 	} `json:"targets"`
-
-	Notifications map[string]NotificationConfig `json:"notifications"`
 }
 
 type TargetSMBConfig struct {
@@ -41,10 +45,50 @@ type TargetSMBConfig struct {
 	ExcludeExtensions []string `json:"exclude-extensions"`
 }
 
-type NotificationConfig struct {
-	Log struct {
-		Output string `json:"output"`
-	} `json:"log"`
+func (t TargetSMBConfig) MarshalJSON() ([]byte, error) {
+	type Alias TargetSMBConfig
+	return json.Marshal(&struct {
+		*Alias
+		Password string `json:"password"`
+	}{
+		Alias:    (*Alias)(&t),
+		Password: "REDACTED",
+	})
+}
+
+// TargetBitbucketConfig defines the configuration for a Bitbucket target.
+type TargetBitbucketConfig struct {
+	Username    string `json:"username"`
+	AppPassword string `json:"appPassword"`
+	BaseURL     string `json:"baseURL,omitempty"` // Optional: Defaults to Bitbucket Cloud API
+}
+
+func (t TargetBitbucketConfig) MarshalJSON() ([]byte, error) {
+	type Alias TargetBitbucketConfig
+	return json.Marshal(&struct {
+		*Alias
+		AppPassword string `json:"appPassword"`
+	}{
+		Alias:       (*Alias)(&t),
+		AppPassword: "REDACTED",
+	})
+}
+
+// TargetGitlabConfig defines the configuration for a GitLab target.
+type TargetGitlabConfig struct {
+	AccessToken string `json:"accessToken"`
+	BaseURL     string `json:"baseURL,omitempty"` // Optional: Defaults to https://gitlab.com/api/v4
+}
+
+func (t TargetGitlabConfig) MarshalJSON() ([]byte, error) {
+	type Alias TargetGitlabConfig
+	return json.Marshal(&struct {
+		*Alias
+		AccessToken string `json:"accessToken"`
+	}{
+		Alias:       (*Alias)(&t),
+		AccessToken: "REDACTED",
+	})
 }
 
 func configCmd() *ff.Command {
@@ -57,15 +101,67 @@ func configCmd() *ff.Command {
 			configEncryptCmd(),
 			configDecryptCmd(),
 			configVerifyCmd(),
+			configListTargetsCmd(),
+		},
+	}
+}
+
+func configListTargetsCmd() *ff.Command {
+	flags := ff.NewFlagSet("targets-list").SetParent(rootFlags)
+	return &ff.Command{
+		Name:      "targets-list",
+		Usage:     "idx config targets-list",
+		ShortHelp: "Lists all targets in the config file",
+		Flags:     flags,
+		Exec: func(ctx context.Context, args []string) error {
+			if _, err := os.Stat(configFile); err != nil {
+				return fmt.Errorf("config file not found: %w", err)
+			}
+
+			content, err := os.ReadFile(configFile)
+			if err != nil {
+				return fmt.Errorf("failed to read config file: %w", err)
+			}
+
+			config, err := parseConfig(content)
+			if err != nil {
+				return fmt.Errorf("failed to parse config file: %w", err)
+			}
+
+			if *useJSON {
+				targets := config.Targets
+				jsonOutput, err := json.MarshalIndent(targets, "", "  ")
+				if err != nil {
+					return fmt.Errorf("failed to marshal config to JSON: %w", err)
+				}
+				fmt.Println(string(jsonOutput))
+				return nil
+			} else {
+				fmt.Println("Targets:")
+				for name := range config.Targets.Smb {
+					fmt.Printf("- SMB Target: %s\n", name)
+				}
+				for name := range config.Targets.Bitbucket {
+					fmt.Printf("- Bitbucket Target: %s\n", name)
+				}
+				for name := range config.Targets.Gitlab {
+					fmt.Printf("- GitLab Target: %s\n", name)
+				}
+			}
+
+			return nil
 		},
 	}
 }
 
 func configVerifyCmd() *ff.Command {
+	flags := ff.NewFlagSet("verify").SetParent(rootFlags)
+	// targetFlag := flags.String('t', "target", "", "Specify a target to verify (optional)")
 	return &ff.Command{
 		Name:      "verify",
-		Usage:     "idx config verify",
+		Usage:     "idx config verify [target]",
 		ShortHelp: "Verifies the config file structure and tests connections",
+		Flags:     flags,
 		Exec: func(ctx context.Context, args []string) error {
 			var plaintext []byte
 			var err error
@@ -92,14 +188,135 @@ func configVerifyCmd() *ff.Command {
 				return fmt.Errorf("failed to parse config: %w", err)
 			}
 
-			for name, target := range config.Targets.Smb {
-				log.Printf("verifying target %s, %v:%v", name, target.Host, target.Port)
-				// TODO: implement actual verification logic
+			result := verifyTargets(ctx, config)
+			if *useJSON {
+				jsonOutput, err := json.MarshalIndent(result, "", "  ")
+				if err != nil {
+					return fmt.Errorf("failed to marshal verification results to JSON: %w", err)
+				}
+				fmt.Println(string(jsonOutput))
+			} else {
+				for _, res := range result {
+					if res.Success {
+						fmt.Printf("%s (%s) verified successfully in %s\n", res.Name, res.Type, res.Duration)
+					} else {
+						fmt.Printf("%s (%s) verification failed: %v (Duration: %s)\n", res.Name, res.Type, res.Error, res.Duration)
+					}
+				}
 			}
 
 			return nil
 		},
 	}
+}
+
+type verificationResult struct {
+	Name     string
+	Type     string
+	Success  bool
+	Error    error
+	Duration time.Duration
+}
+
+func verifyTargets(ctx context.Context, config *Config) []verificationResult {
+	var results []verificationResult
+	for name, target := range config.Targets.Smb {
+		startTime := time.Now()
+
+		conn, err := smb.Connect(target.Host, target.Port, target.Username, target.Password)
+		if err != nil {
+			results = append(results,
+				verificationResult{
+					Name:     name,
+					Type:     "smb",
+					Success:  false,
+					Error:    err,
+					Duration: time.Since(startTime),
+				},
+			)
+			continue
+		}
+
+		if conn.IsAuthenticated() {
+			results = append(results, verificationResult{
+				Name:    name,
+				Type:    "smb",
+				Success: true,
+			})
+		} else {
+			results = append(results, verificationResult{
+				Name:     name,
+				Type:     "smb",
+				Success:  false,
+				Error:    fmt.Errorf("failed to authenticate to smb target"),
+				Duration: time.Since(startTime),
+			})
+		}
+		conn.Close()
+	}
+
+	for name, target := range config.Targets.Bitbucket {
+		client, err := bitbucket.NewAPIClient(target.BaseURL, target.Username, target.AppPassword)
+		if err != nil {
+			results = append(results, verificationResult{
+				Name:     name,
+				Type:     "bitbucket",
+				Success:  false,
+				Error:    err,
+				Duration: time.Since(time.Now()),
+			})
+			continue
+		}
+
+		if err := client.VerifyConnection(ctx); err != nil {
+			results = append(results, verificationResult{
+				Name:     name,
+				Type:     "bitbucket",
+				Success:  false,
+				Error:    err,
+				Duration: time.Since(time.Now()),
+			})
+		} else {
+			results = append(results, verificationResult{
+				Name:     name,
+				Type:     "bitbucket",
+				Success:  true,
+				Duration: time.Since(time.Now()),
+			})
+		}
+	}
+
+	for name, target := range config.Targets.Gitlab {
+		client, err := gitlab.NewAPIClient(target.BaseURL, target.AccessToken)
+		if err != nil {
+			results = append(results, verificationResult{
+				Name:     name,
+				Type:     "gitlab",
+				Success:  false,
+				Error:    err,
+				Duration: time.Since(time.Now()),
+			})
+			continue
+		}
+		if err := client.VerifyConnection(ctx); err != nil {
+			results = append(results, verificationResult{
+				Name:     name,
+				Type:     "gitlab",
+				Success:  false,
+				Error:    err,
+				Duration: time.Since(time.Now()),
+			})
+		} else {
+			results = append(results, verificationResult{
+				Name:     name,
+				Type:     "gitlab",
+				Success:  true,
+				Duration: time.Since(time.Now()),
+			})
+		}
+	}
+
+	return results
 }
 
 func configInitCmd() *ff.Command {

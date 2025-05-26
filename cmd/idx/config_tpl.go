@@ -18,11 +18,22 @@ const tplConfig = `{
                     "bin"
                 ]
             }
-        }
+        },
+        "bitbucket": {
+            "example-bitbucket-cloud": {
+                "baseURL": "https://api.bitbucket.org/2.0"
+            },
+            "example-bitbucket-server": {
+                "username": "your-bitbucket-username",
+                "appPassword": "your-personal-access-token",
+                "baseURL": "https://your.bitbucket.server.com/rest/api/1.0"
+            }
+        },
+		"gitlab": {
+			"example-gitlab-com": {
+				"accessToken": "your-gitlab-personal-access-token",
+				"baseURL": "https://gitlab.com/api/v4"
+			}
+		}
     },
-    "notifications": {
-        "log": {
-            "output": "idx.log"
-        }
-    }
 } `

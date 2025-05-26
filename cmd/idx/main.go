@@ -9,8 +9,13 @@ import (
 	"github.com/peterbourgon/ff/v4/ffhelp"
 )
 
+var rootFlags = ff.NewFlagSet("idx")
+
+var (
+	useJSON = rootFlags.Bool('j', "json", "output in JSON format")
+)
+
 func main() {
-	rootFlags := ff.NewFlagSet("idx")
 	rootCmd := &ff.Command{
 		Name:  "idx",
 		Usage: "idx [FLAGS] <subcommand>",

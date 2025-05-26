@@ -61,7 +61,7 @@ func TestDeriveKey(t *testing.T) {
 // TestEncryptDecryptConfigFile tests encrypting and decrypting a config file.
 func TestEncryptDecryptConfigFile(t *testing.T) {
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "test_config.ini")
+	configPath := filepath.Join(tempDir, "test_config.json")
 	encryptedPath := configPath + ".enc"
 	password := []byte("testpassword")
 	originalContent := []byte("[section]\nkey=value\n")
@@ -91,9 +91,14 @@ func TestEncryptDecryptConfigFile(t *testing.T) {
 	}
 
 	// Decrypt the file
-	err = decryptConfigFile(encryptedPath, password)
+	plaintext, err := decryptConfigFile(encryptedPath, password)
 	if err != nil {
 		t.Fatalf("decryptConfigFile failed: %v", err)
+	}
+
+	// Compare decrypted content with original
+	if !bytes.Equal(plaintext, originalContent) { // Use bytes.Equal for []byte comparison
+		t.Fatalf("decrypted content does not match original. Got %q, want %q", string(plaintext), string(originalContent))
 	}
 
 	// Check if encrypted file exists (it shouldn't if decryption succeeded without error)
@@ -124,7 +129,7 @@ func TestConfigInitCmd(t *testing.T) {
 	}
 	defer os.Chdir(originalWd) // Change back at the end
 
-	configPath := "config.ini"
+	configPath := "config.json"
 
 	// Ensure config doesn't exist initially
 	os.Remove(configPath) // Ignore error if it doesn't exist
@@ -145,13 +150,13 @@ func TestConfigInitCmd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read created config file: %v", err)
 	}
-	if !bytes.HasPrefix(content, []byte("; [example-target-smb]")) {
+	if !bytes.HasPrefix(content, []byte("{\n    \"targets\": {")) {
 		t.Errorf("Config file content does not match expected template start. got %q", content)
 	}
 
 	// Test that it fails if the file already exists
 	err = cmd.Exec(context.Background(), []string{})
 	if err == nil {
-		t.Errorf("config init command should have failed when config.ini already exists")
+		t.Errorf("config init command should have failed when config.json already exists")
 	}
 }
