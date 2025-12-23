@@ -9,85 +9,51 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"idx/internal/targets/bitbucket" // Added Bitbucket import
-	"idx/internal/targets/gitlab"    // Added GitLab import
-	"idx/internal/targets/smb"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"syscall"
 	"time"
 
-	"golang.org/x/crypto/pbkdf2"
+	bitbucketcloud "idx/targets/bitbucket-cloud"
+	bitbucketdc "idx/targets/bitbucket-dc"
 
 	"github.com/peterbourgon/ff/v4"
+	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/term"
 )
 
-var configFile = "config.json"
-var configFileEnc = "config.json.enc"
+const (
+	configFilename    = "config.json"
+	configFilenameEnc = "config.json.enc"
+)
 
 type Config struct {
 	Targets struct {
-		Smb       map[string]TargetSMBConfig       `json:"smb"`
-		Bitbucket map[string]TargetBitbucketConfig `json:"bitbucket"`
-		Gitlab    map[string]TargetGitlabConfig    `json:"gitlab"`
+		BitbucketCloud map[string]TargetBitbucketConfig `json:"bitbucket-cloud"`
+		BitbucketDC    map[string]TargetBitbucketConfig `json:"bitbucket-dc"`
 	} `json:"targets"`
-}
-
-type TargetSMBConfig struct {
-	Username          string   `json:"username"`
-	Password          string   `json:"password"`
-	Host              string   `json:"host"`
-	Port              int      `json:"port"`
-	Shares            string   `json:"shares"`
-	ExcludeShares     []string `json:"exclude-shares"`
-	ExcludeExtensions []string `json:"exclude-extensions"`
-}
-
-func (t TargetSMBConfig) MarshalJSON() ([]byte, error) {
-	type Alias TargetSMBConfig
-	return json.Marshal(&struct {
-		*Alias
-		Password string `json:"password"`
-	}{
-		Alias:    (*Alias)(&t),
-		Password: "REDACTED",
-	})
 }
 
 // TargetBitbucketConfig defines the configuration for a Bitbucket target.
 type TargetBitbucketConfig struct {
-	Username    string `json:"username"`
-	AppPassword string `json:"appPassword"`
-	BaseURL     string `json:"baseURL,omitempty"` // Optional: Defaults to Bitbucket Cloud API
+	Username string `json:"username"`
+	ApiToken string `json:"apiToken"`
+	BaseURL  string `json:"baseURL"` // unused for Bitbucket Cloud
+
+	Workspaces []string `json:"workspaces"`
 }
 
+// MarshalJSON customizes the JSON marshaling to redact the ApiToken field.
 func (t TargetBitbucketConfig) MarshalJSON() ([]byte, error) {
 	type Alias TargetBitbucketConfig
 	return json.Marshal(&struct {
 		*Alias
-		AppPassword string `json:"appPassword"`
+		ApiToken string `json:"apiToken"`
 	}{
-		Alias:       (*Alias)(&t),
-		AppPassword: "REDACTED",
-	})
-}
-
-// TargetGitlabConfig defines the configuration for a GitLab target.
-type TargetGitlabConfig struct {
-	AccessToken string `json:"accessToken"`
-	BaseURL     string `json:"baseURL,omitempty"` // Optional: Defaults to https://gitlab.com/api/v4
-}
-
-func (t TargetGitlabConfig) MarshalJSON() ([]byte, error) {
-	type Alias TargetGitlabConfig
-	return json.Marshal(&struct {
-		*Alias
-		AccessToken string `json:"accessToken"`
-	}{
-		Alias:       (*Alias)(&t),
-		AccessToken: "REDACTED",
+		Alias:    (*Alias)(&t),
+		ApiToken: "REDACTED",
 	})
 }
 
@@ -114,39 +80,17 @@ func configListTargetsCmd() *ff.Command {
 		ShortHelp: "Lists all targets in the config file",
 		Flags:     flags,
 		Exec: func(ctx context.Context, args []string) error {
-			if _, err := os.Stat(configFile); err != nil {
-				return fmt.Errorf("config file not found: %w", err)
-			}
-
-			content, err := os.ReadFile(configFile)
+			config, err := LoadConfig()
 			if err != nil {
-				return fmt.Errorf("failed to read config file: %w", err)
+				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			config, err := parseConfig(content)
-			if err != nil {
-				return fmt.Errorf("failed to parse config file: %w", err)
+			fmt.Println("Targets:")
+			for name := range config.Targets.BitbucketCloud {
+				fmt.Printf("- Bitbucket Cloud: %s\n", name)
 			}
-
-			if *useJSON {
-				targets := config.Targets
-				jsonOutput, err := json.MarshalIndent(targets, "", "  ")
-				if err != nil {
-					return fmt.Errorf("failed to marshal config to JSON: %w", err)
-				}
-				fmt.Println(string(jsonOutput))
-				return nil
-			} else {
-				fmt.Println("Targets:")
-				for name := range config.Targets.Smb {
-					fmt.Printf("- SMB Target: %s\n", name)
-				}
-				for name := range config.Targets.Bitbucket {
-					fmt.Printf("- Bitbucket Target: %s\n", name)
-				}
-				for name := range config.Targets.Gitlab {
-					fmt.Printf("- GitLab Target: %s\n", name)
-				}
+			for name := range config.Targets.BitbucketDC {
+				fmt.Printf("- Bitbucket Data Center: %s\n", name)
 			}
 
 			return nil
@@ -156,54 +100,18 @@ func configListTargetsCmd() *ff.Command {
 
 func configVerifyCmd() *ff.Command {
 	flags := ff.NewFlagSet("verify").SetParent(rootFlags)
-	// targetFlag := flags.String('t', "target", "", "Specify a target to verify (optional)")
 	return &ff.Command{
 		Name:      "verify",
 		Usage:     "idx config verify [target]",
 		ShortHelp: "Verifies the config file structure and tests connections",
 		Flags:     flags,
 		Exec: func(ctx context.Context, args []string) error {
-			var plaintext []byte
-			var err error
-
-			if _, err = os.Stat(configFile); err == nil {
-				log.Printf("%v found, using this instead of %v", configFile, configFileEnc)
-				plaintext, err = os.ReadFile(configFile)
-				if err != nil {
-					return fmt.Errorf("failed to read config file: %w", err)
-				}
-			} else {
-				pw, err := readPasswordSafe(false)
-				if err != nil {
-					return fmt.Errorf("failed to read password: %w", err)
-				}
-
-				if plaintext, err = decryptConfigFile(configFileEnc, pw); err != nil {
-					return fmt.Errorf("failed to decrypt config file: %w", err)
-				}
-			}
-
-			config, err := parseConfig(plaintext)
+			config, err := LoadConfig()
 			if err != nil {
-				return fmt.Errorf("failed to parse config: %w", err)
+				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			result := verifyTargets(ctx, config)
-			if *useJSON {
-				jsonOutput, err := json.MarshalIndent(result, "", "  ")
-				if err != nil {
-					return fmt.Errorf("failed to marshal verification results to JSON: %w", err)
-				}
-				fmt.Println(string(jsonOutput))
-			} else {
-				for _, res := range result {
-					if res.Success {
-						fmt.Printf("%s (%s) verified successfully in %s\n", res.Name, res.Type, res.Duration)
-					} else {
-						fmt.Printf("%s (%s) verification failed: %v (Duration: %s)\n", res.Name, res.Type, res.Error, res.Duration)
-					}
-				}
-			}
+			verifyTargets(ctx, config)
 
 			return nil
 		},
@@ -218,105 +126,72 @@ type verificationResult struct {
 	Duration time.Duration
 }
 
-func verifyTargets(ctx context.Context, config *Config) []verificationResult {
-	var results []verificationResult
-	for name, target := range config.Targets.Smb {
-		startTime := time.Now()
-
-		conn, err := smb.Connect(target.Host, target.Port, target.Username, target.Password)
+func verifyTargets(ctx context.Context, config *Config) {
+	// Verify Bitbucket Cloud targets
+	for name, target := range config.Targets.BitbucketCloud {
+		client, err := bitbucketcloud.NewAPIClient(target.Username, target.ApiToken)
 		if err != nil {
-			results = append(results,
-				verificationResult{
-					Name:     name,
-					Type:     "smb",
-					Success:  false,
-					Error:    err,
-					Duration: time.Since(startTime),
-				},
+			slog.Error("failed to create Bitbucket Cloud client", "target", name, "error", err)
+			continue
+		}
+
+		if err := client.VerifyConnection(ctx); err != nil {
+			slog.Error(
+				"Bitbucket Cloud target verification failed",
+				"target",
+				name,
+				"username",
+				target.Username,
+				"len(apiToken)",
+				len(target.ApiToken),
+				"error",
+				err,
 			)
-			continue
-		}
-
-		if conn.IsAuthenticated() {
-			results = append(results, verificationResult{
-				Name:    name,
-				Type:    "smb",
-				Success: true,
-			})
 		} else {
-			results = append(results, verificationResult{
-				Name:     name,
-				Type:     "smb",
-				Success:  false,
-				Error:    fmt.Errorf("failed to authenticate to smb target"),
-				Duration: time.Since(startTime),
-			})
+			slog.Info(
+				"Bitbucket Cloud target verification succeeded",
+				"target",
+				name,
+				"username",
+				target.Username,
+				"len(apiToken)",
+				len(target.ApiToken),
+			)
 		}
-		conn.Close()
 	}
 
-	for name, target := range config.Targets.Bitbucket {
-		client, err := bitbucket.NewAPIClient(target.BaseURL, target.Username, target.AppPassword)
+	// Verify Bitbucket Data Center targets
+	for name, target := range config.Targets.BitbucketDC {
+		client, err := bitbucketdc.NewAPIClient(target.BaseURL, target.Username, target.ApiToken)
 		if err != nil {
-			results = append(results, verificationResult{
-				Name:     name,
-				Type:     "bitbucket",
-				Success:  false,
-				Error:    err,
-				Duration: time.Since(time.Now()),
-			})
+			slog.Error("failed to create Bitbucket DC client", "target", name, "error", err)
 			continue
 		}
 
 		if err := client.VerifyConnection(ctx); err != nil {
-			results = append(results, verificationResult{
-				Name:     name,
-				Type:     "bitbucket",
-				Success:  false,
-				Error:    err,
-				Duration: time.Since(time.Now()),
-			})
+			slog.Error(
+				"Bitbucket DC target verification failed",
+				"target",
+				name,
+				"username",
+				target.Username,
+				"len(apiToken)",
+				len(target.ApiToken),
+				"error",
+				err,
+			)
 		} else {
-			results = append(results, verificationResult{
-				Name:     name,
-				Type:     "bitbucket",
-				Success:  true,
-				Duration: time.Since(time.Now()),
-			})
+			slog.Info(
+				"Bitbucket DC target verification succeeded",
+				"target",
+				name,
+				"username",
+				target.Username,
+				"len(apiToken)",
+				len(target.ApiToken),
+			)
 		}
 	}
-
-	for name, target := range config.Targets.Gitlab {
-		client, err := gitlab.NewAPIClient(target.BaseURL, target.AccessToken)
-		if err != nil {
-			results = append(results, verificationResult{
-				Name:     name,
-				Type:     "gitlab",
-				Success:  false,
-				Error:    err,
-				Duration: time.Since(time.Now()),
-			})
-			continue
-		}
-		if err := client.VerifyConnection(ctx); err != nil {
-			results = append(results, verificationResult{
-				Name:     name,
-				Type:     "gitlab",
-				Success:  false,
-				Error:    err,
-				Duration: time.Since(time.Now()),
-			})
-		} else {
-			results = append(results, verificationResult{
-				Name:     name,
-				Type:     "gitlab",
-				Success:  true,
-				Duration: time.Since(time.Now()),
-			})
-		}
-	}
-
-	return results
 }
 
 func configInitCmd() *ff.Command {
@@ -325,19 +200,19 @@ func configInitCmd() *ff.Command {
 		Usage:     "idx config init",
 		ShortHelp: "creates a new (unencrypted) config file",
 		Exec: func(ctx context.Context, args []string) error {
-			if _, err := os.Stat(configFile); err == nil {
-				return fmt.Errorf("%v already exists", configFile)
+			if _, err := os.Stat(configFilename); err == nil {
+				return fmt.Errorf("%v already exists", configFilename)
 			}
 
-			initFile, err := os.Create(configFile)
+			initFile, err := os.Create(configFilename)
 			if err != nil {
-				return fmt.Errorf("failed to create %v: %w", configFile, err)
+				return fmt.Errorf("failed to create %v: %w", configFilename, err)
 			}
 			defer initFile.Close()
 
 			_, err = initFile.WriteString(tplConfig)
 			if err != nil {
-				return fmt.Errorf("failed to write to %v: %w", configFile, err)
+				return fmt.Errorf("failed to write to %v: %w", configFilename, err)
 			}
 
 			return nil
@@ -358,12 +233,12 @@ func configEncryptCmd() *ff.Command {
 				return fmt.Errorf("failed to read password: %w", err)
 			}
 
-			if err := encryptConfigFile(configFile, pw); err != nil {
+			if err := encryptConfigFile(configFilename, pw); err != nil {
 				return fmt.Errorf("failed to encrypt config file: %w", err)
 			}
 
 			// remove unencrypted config file
-			if err := os.Remove(configFile); err != nil {
+			if err := os.Remove(configFilename); err != nil {
 				return fmt.Errorf("failed to remove unencrypted config file: %w", err)
 			}
 
@@ -385,13 +260,13 @@ func configDecryptCmd() *ff.Command {
 				return fmt.Errorf("failed to read password: %w", err)
 			}
 
-			plaintext, err := decryptConfigFile(configFileEnc, pw)
+			plaintext, err := decryptConfigFile(configFilenameEnc, pw)
 			if err != nil {
 				return fmt.Errorf("failed to decrypt config file: %w", err)
 			}
 
 			// write decrypted config file
-			decFile, err := os.Create(configFile)
+			decFile, err := os.Create(configFilename)
 			if err != nil {
 				return fmt.Errorf("create decrypted config file: %w", err)
 			}
@@ -402,7 +277,7 @@ func configDecryptCmd() *ff.Command {
 			}
 
 			// remove unencrypted config file
-			if err := os.Remove(configFileEnc); err != nil {
+			if err := os.Remove(configFilenameEnc); err != nil {
 				return fmt.Errorf("failed to remove unencrypted config file: %w", err)
 			}
 
@@ -412,7 +287,6 @@ func configDecryptCmd() *ff.Command {
 }
 
 func encryptConfigFile(path string, pw []byte) error {
-	// 32bytes, 10000 iterations
 	derivedKey, salt := deriveKey(pw, 10000, 32)
 
 	// read config file raw
@@ -526,6 +400,7 @@ func encryptAES(key []byte, plaintext []byte) ([]byte, error) {
 
 func decryptAES(key []byte, ciphertext []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
+
 	if err != nil {
 		return nil, fmt.Errorf("create cipher: %w", err)
 	}
@@ -555,4 +430,32 @@ func parseConfig(content []byte) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 	return &config, nil
+}
+
+func LoadConfig() (*Config, error) {
+	var plaintext []byte
+	var err error
+
+	// first check if there is an unencrypted config file
+	// and use it if available
+	if _, err = os.Stat(configFilename); err == nil {
+		log.Printf("warning: using unencrypted %v", configFilename)
+		plaintext, err = os.ReadFile(configFilename)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+
+		// if not, try to read the encrypted config file
+	} else {
+		pw, err := readPasswordSafe(false)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read password: %w", err)
+		}
+
+		if plaintext, err = decryptConfigFile(configFilenameEnc, pw); err != nil {
+			return nil, fmt.Errorf("failed to decrypt config file: %w", err)
+		}
+	}
+
+	return parseConfig(plaintext)
 }

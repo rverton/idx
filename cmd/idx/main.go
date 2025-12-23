@@ -11,10 +11,6 @@ import (
 
 var rootFlags = ff.NewFlagSet("idx")
 
-var (
-	useJSON = rootFlags.Bool('j', "json", "output in JSON format")
-)
-
 func main() {
 	rootCmd := &ff.Command{
 		Name:  "idx",
@@ -22,6 +18,9 @@ func main() {
 		Flags: rootFlags,
 		Subcommands: []*ff.Command{
 			configCmd(),
+		},
+		Exec: func(ctx context.Context, args []string) error {
+			return nil
 		},
 	}
 
@@ -31,8 +30,8 @@ func main() {
 		ff.WithConfigFileFlag("config"),
 		ff.WithConfigFileParser(ff.PlainParser),
 	); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n\n", err)
 		fmt.Fprintf(os.Stderr, "%s\n", ffhelp.Command(rootCmd))
-		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		os.Exit(0)
 	}
 }

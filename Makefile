@@ -25,15 +25,15 @@ audit:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	go test -race -vet=off ./...
 
-migrate/up:
-	migrate -path ./internal/database/migrations -database "${DB_URL}" up
+db/up:
+	migrate -path ./database/migrations -database "${DB_URL}" up
 
-migrate/down:
-	migrate -path ./internal/database/migrations -database "${DB_URL}" down
+db/down:
+	migrate -path ./database/migrations -database "${DB_URL}" down
 
-migrate/new:
-	migrate create -ext sql -dir ./internal/database/migrations $(name)
+db/new-migrations:
+	migrate create -ext sql -dir ./database/migrations $(name)
 
-generate/sqlc:
-	cd internal/database && sqlc generate
-	cd internal/datadb && sqlc generate
+db/generate-sqlc:
+	cd ./database && sqlc generate
+	cd ./datadb && sqlc generate

@@ -160,3 +160,64 @@ func TestConfigInitCmd(t *testing.T) {
 		t.Errorf("config init command should have failed when config.json already exists")
 	}
 }
+
+// TestLoadConfig tests loading an unencrypted config file.
+func TestLoadConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	originalWd, _ := os.Getwd()
+	err := os.Chdir(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
+	defer os.Chdir(originalWd)
+
+	validConfig := []byte(`{
+		"targets": {
+			"bitbucket-cloud": {
+				"my-bitbucket": {
+					"username": "testuser",
+					"apiToken": "secret123",
+					"baseURL": "https://api.bitbucket.org"
+				}
+			}
+		}
+	}`)
+
+	// Create unencrypted config file
+	err = os.WriteFile(configFilename, validConfig, 0600)
+	if err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	// Load the config
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() failed: %v", err)
+	}
+
+	// Verify config was loaded correctly
+	if config == nil {
+		t.Fatal("loadConfig() returned nil config")
+	}
+
+	if len(config.Targets.BitbucketCloud) != 1 {
+		t.Errorf("Expected 1 Bitbucket Cloud target, got %d", len(config.Targets.BitbucketCloud))
+	}
+
+	target, exists := config.Targets.BitbucketCloud["my-bitbucket"]
+	if !exists {
+		t.Fatal("Expected 'my-bitbucket' target to exist")
+	}
+
+	if target.Username != "testuser" {
+		t.Errorf("Expected username 'testuser', got %q", target.Username)
+	}
+
+	if target.ApiToken != "secret123" {
+		t.Errorf("Expected apiToken 'secret123', got %q", target.ApiToken)
+	}
+
+	if target.BaseURL != "https://api.bitbucket.org" {
+		t.Errorf("Expected baseURL 'https://api.bitbucket.org', got %q", target.BaseURL)
+	}
+}
