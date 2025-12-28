@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"idx/tools"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -32,6 +33,10 @@ func NewAPIClient(username, apiToken string) (*APIClient, error) {
 			Timeout: 10 * time.Second,
 		},
 	}, nil
+}
+
+func (c APIClient) RepoURL(repo string) string {
+	return "https://bitbucket.org/" + repo + ".git"
 }
 
 // doRequest is a helper to make HTTP requests, adding authentication if configured.
@@ -186,7 +191,7 @@ func Explore(ctx context.Context, name string, username string, apiToken string,
 
 	client, err := NewAPIClient(username, apiToken)
 	if err != nil {
-		return fmt.Errorf("failed to create Bitbucket Cloud client: %w", err)
+		return fmt.Errorf("bitbucket-cloud: %w", err)
 	}
 
 	repos, err := client.listRepositories(ctx, workspaces)
@@ -194,7 +199,23 @@ func Explore(ctx context.Context, name string, username string, apiToken string,
 		return fmt.Errorf("failed to list repositories: %w", err)
 	}
 
-	slog.Info("bitbucket cloud repositories", "target", name, "count", len(repos), "repositories", repos)
+	slog.Info("bitbucket-cloud repositories", "target", name, "count", len(repos), "repositories", repos)
+
+	for _, repo := range repos {
+		repoPath, cleanup, err := tools.CloneRepository(
+			ctx,
+			client.RepoURL(repo),
+			"x-bitbucket-api-token-auth",
+			apiToken,
+		)
+		if err != nil {
+			slog.Error("bitbucket-cloud: failed to clone repository", "repository", repo, "error", err)
+			continue
+		}
+		defer cleanup()
+
+		slog.Info("bitbucket-cloud: cloned repository", "repository", repo, "path", repoPath)
+	}
 
 	return nil
 }
