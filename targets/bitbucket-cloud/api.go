@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"idx/detect"
 	"idx/tools"
 	"log/slog"
 	"net/http"
@@ -187,7 +188,14 @@ func (c *APIClient) listRepositories(ctx context.Context, workspaces []string) (
 	return allRepos, nil
 }
 
-func Explore(ctx context.Context, name string, username string, apiToken string, workspaces []string) error {
+func Explore(
+	ctx context.Context,
+	analyze func(content detect.Content),
+	name string,
+	username string,
+	apiToken string,
+	workspaces []string,
+) error {
 
 	client, err := NewAPIClient(username, apiToken)
 	if err != nil {
@@ -215,7 +223,31 @@ func Explore(ctx context.Context, name string, username string, apiToken string,
 		defer cleanup()
 
 		slog.Info("bitbucket-cloud: cloned repository", "repository", repo, "path", repoPath)
+
+		analyseRepo(repoPath, repo, analyze)
 	}
 
 	return nil
+}
+
+// analyseRepo analyzes the repository at the given path going through every
+// commit and file, constructing a detect.Content object for each change found.
+func analyseRepo(path string, repo string, analyze func(content detect.Content)) {
+	err := tools.IterateCommits(path, func(fc tools.FileChange) error {
+		content := detect.Content{
+			Key:  fmt.Sprintf("%s:%s:%s", repo, fc.CommitHash[:8], fc.FilePath),
+			Data: []byte(fc.Patch),
+			Location: []string{
+				"bitbucket-cloud",
+				repo,
+				fc.CommitHash,
+				fc.FilePath,
+			},
+		}
+		analyze(content)
+		return nil
+	})
+	if err != nil {
+		slog.Error("failed to iterate commits", "repo", repo, "error", err)
+	}
 }

@@ -3,12 +3,14 @@ package idx
 import (
 	"context"
 	"fmt"
+	"idx/detect"
 	bitbucketcloud "idx/targets/bitbucket-cloud"
 	"log/slog"
 	"time"
 )
 
 func Explore(ctx context.Context, config *Config) error {
+	detector := detect.DefaultDetector
 
 	for name, target := range config.Targets.BitbucketCloud {
 		if target.Disabled {
@@ -20,6 +22,7 @@ func Explore(ctx context.Context, config *Config) error {
 
 		if err := bitbucketcloud.Explore(
 			ctx,
+			newAnalyzeFunc(&detector),
 			name,
 			target.Username,
 			target.ApiToken,
@@ -32,4 +35,19 @@ func Explore(ctx context.Context, config *Config) error {
 	}
 
 	return nil
+}
+
+func newAnalyzeFunc(detector *detect.Detector) func(content detect.Content) {
+	return func(content detect.Content) {
+		slog.Debug("analyzing content", "key", content.Key, "location", content.Location)
+
+		for _, finding := range detector.Detect(content) {
+			slog.Info("finding detected",
+				"rule", finding.Rule.Name,
+				"description", finding.Rule.Description,
+				"content_key", finding.ContentKey,
+				"location", finding.Location,
+			)
+		}
+	}
 }
