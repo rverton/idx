@@ -190,7 +190,7 @@ func TestLoadConfig(t *testing.T) {
 	}
 
 	// Load the config
-	config, err := LoadConfig()
+	config, err := loadConfig(configFilename, "")
 	if err != nil {
 		t.Fatalf("loadConfig() failed: %v", err)
 	}

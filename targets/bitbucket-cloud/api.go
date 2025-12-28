@@ -151,13 +151,13 @@ type ResponseRepositories struct {
 }
 
 // ListRepositories lists all repositories for the given workspaces.
-func (c *APIClient) ListRepositories(workspaces []string) ([]string, error) {
+func (c *APIClient) listRepositories(ctx context.Context, workspaces []string) ([]string, error) {
 	var allRepos []string
 
 	for _, workspace := range workspaces {
 		endpointURL := fmt.Sprintf("%s/repositories/%s", c.BaseURL, workspace)
 
-		req, err := http.NewRequest("GET", endpointURL, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", endpointURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Bitbucket Cloud API request: %w", err)
 		}
@@ -180,4 +180,21 @@ func (c *APIClient) ListRepositories(workspaces []string) ([]string, error) {
 	}
 
 	return allRepos, nil
+}
+
+func Explore(ctx context.Context, name string, username string, apiToken string, workspaces []string) error {
+
+	client, err := NewAPIClient(username, apiToken)
+	if err != nil {
+		return fmt.Errorf("failed to create Bitbucket Cloud client: %w", err)
+	}
+
+	repos, err := client.listRepositories(ctx, workspaces)
+	if err != nil {
+		return fmt.Errorf("failed to list repositories: %w", err)
+	}
+
+	slog.Info("bitbucket cloud repositories", "target", name, "count", len(repos), "repositories", repos)
+
+	return nil
 }
