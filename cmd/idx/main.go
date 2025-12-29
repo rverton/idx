@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"idx"
+	"idx/db"
 	bitbucketcloud "idx/targets/bitbucket-cloud"
 	bitbucketdc "idx/targets/bitbucket-dc"
 	"log"
@@ -21,6 +23,7 @@ var rootFlags = ff.NewFlagSet("idx")
 const (
 	configFilename    = "config.json"
 	configFilenameEnc = "config.json.enc"
+	dbFilename        = "idx.db"
 )
 
 func main() {
@@ -30,6 +33,7 @@ func main() {
 		Flags: rootFlags,
 		Subcommands: []*ff.Command{
 			configCmd(),
+			listRunsCmd(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			slog.Info("internal data explorer started")
@@ -39,8 +43,40 @@ func main() {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
+			queries, err := db.Connect(ctx, dbFilename)
+			if err != nil {
+				return fmt.Errorf("failed to connect to database: %w", err)
+			}
+
+			runId, err := queries.InsertRun(ctx, db.InsertRunParams{
+				StartedAt: time.Now().Unix(),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to update run: %w", err)
+			}
+
 			if err := idx.Explore(ctx, config); err != nil {
+				if err := queries.UpdateRun(ctx, db.UpdateRunParams{
+					ID:     runId,
+					Status: "failed",
+					ErrorMessage: sql.NullString{
+						String: err.Error(),
+						Valid:  true,
+					},
+					FinishedAt: sql.NullInt64{Int64: time.Now().Unix(), Valid: true},
+				}); err != nil {
+					fmt.Printf("failed to update failed run: %v", err)
+				}
+
 				return fmt.Errorf("exploration failed: %w", err)
+			}
+
+			if err := queries.UpdateRun(ctx, db.UpdateRunParams{
+				ID:         runId,
+				Status:     "completed",
+				FinishedAt: sql.NullInt64{Int64: time.Now().Unix(), Valid: true},
+			}); err != nil {
+				return fmt.Errorf("failed to update run: %w", err)
 			}
 
 			return nil
@@ -70,6 +106,46 @@ func configCmd() *ff.Command {
 			configDecryptCmd(),
 			configVerifyCmd(),
 			configListTargetsCmd(),
+		},
+	}
+}
+
+func listRunsCmd() *ff.Command {
+	return &ff.Command{
+		Name:      "list-runs",
+		Usage:     "idx list-runs",
+		ShortHelp: "Lists all runs from the database",
+		Exec: func(ctx context.Context, args []string) error {
+			queries, err := db.Connect(ctx, dbFilename)
+			if err != nil {
+				return fmt.Errorf("failed to connect to database: %w", err)
+			}
+
+			runs, err := queries.ListRuns(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to list runs: %w", err)
+			}
+
+			if len(runs) == 0 {
+				fmt.Println("No runs found.")
+				return nil
+			}
+
+			fmt.Println("Runs:")
+			for _, run := range runs {
+				startedAt := db.FormatTimestamp(run.StartedAt)
+				finishedAt := db.FormatNullTimestamp(run.FinishedAt, "(in progress)")
+
+				if run.Status == "failed" && run.ErrorMessage.Valid {
+					fmt.Printf("- ID: %d, Status: %s, Started At: %s, Finished At: %s, Error: %s\n",
+						run.ID, run.Status, startedAt, finishedAt, run.ErrorMessage.String)
+					continue
+				}
+
+				fmt.Printf("- ID: %d, Status: %s, Started At: %s, Finished At: %s\n", run.ID, run.Status, startedAt, finishedAt)
+			}
+
+			return nil
 		},
 	}
 }
@@ -117,82 +193,6 @@ func configVerifyCmd() *ff.Command {
 
 			return nil
 		},
-	}
-}
-
-type verificationResult struct {
-	Name     string
-	Type     string
-	Success  bool
-	Error    error
-	Duration time.Duration
-}
-
-func verifyTargets(ctx context.Context, config *idx.Config) {
-	// Verify Bitbucket Cloud targets
-	for name, target := range config.Targets.BitbucketCloud {
-		client, err := bitbucketcloud.NewAPIClient(target.Username, target.ApiToken)
-		if err != nil {
-			slog.Error("failed to create Bitbucket Cloud client", "target", name, "error", err)
-			continue
-		}
-
-		if err := client.VerifyConnection(ctx); err != nil {
-			slog.Error(
-				"Bitbucket Cloud target verification failed",
-				"target",
-				name,
-				"username",
-				target.Username,
-				"len(apiToken)",
-				len(target.ApiToken),
-				"error",
-				err,
-			)
-		} else {
-			slog.Info(
-				"Bitbucket Cloud target verification succeeded",
-				"target",
-				name,
-				"username",
-				target.Username,
-				"len(apiToken)",
-				len(target.ApiToken),
-			)
-		}
-	}
-
-	// Verify Bitbucket Data Center targets
-	for name, target := range config.Targets.BitbucketDC {
-		client, err := bitbucketdc.NewAPIClient(target.BaseURL, target.Username, target.ApiToken)
-		if err != nil {
-			slog.Error("failed to create Bitbucket DC client", "target", name, "error", err)
-			continue
-		}
-
-		if err := client.VerifyConnection(ctx); err != nil {
-			slog.Error(
-				"Bitbucket DC target verification failed",
-				"target",
-				name,
-				"username",
-				target.Username,
-				"len(apiToken)",
-				len(target.ApiToken),
-				"error",
-				err,
-			)
-		} else {
-			slog.Info(
-				"Bitbucket DC target verification succeeded",
-				"target",
-				name,
-				"username",
-				target.Username,
-				"len(apiToken)",
-				len(target.ApiToken),
-			)
-		}
 	}
 }
 
@@ -285,6 +285,81 @@ func configDecryptCmd() *ff.Command {
 
 			return nil
 		},
+	}
+}
+
+type verificationResult struct {
+	Name     string
+	Type     string
+	Success  bool
+	Error    error
+	Duration time.Duration
+}
+
+func verifyTargets(ctx context.Context, config *idx.Config) {
+	for name, target := range config.Targets.BitbucketCloud {
+		client, err := bitbucketcloud.NewAPIClient(target.Username, target.ApiToken)
+		if err != nil {
+			slog.Error("failed to create Bitbucket Cloud client", "target", name, "error", err)
+			continue
+		}
+
+		if err := client.VerifyConnection(ctx); err != nil {
+			slog.Error(
+				"Bitbucket Cloud target verification failed",
+				"target",
+				name,
+				"username",
+				target.Username,
+				"len(apiToken)",
+				len(target.ApiToken),
+				"error",
+				err,
+			)
+		} else {
+			slog.Info(
+				"Bitbucket Cloud target verification succeeded",
+				"target",
+				name,
+				"username",
+				target.Username,
+				"len(apiToken)",
+				len(target.ApiToken),
+			)
+		}
+	}
+
+	// Verify Bitbucket Data Center targets
+	for name, target := range config.Targets.BitbucketDC {
+		client, err := bitbucketdc.NewAPIClient(target.BaseURL, target.Username, target.ApiToken)
+		if err != nil {
+			slog.Error("failed to create Bitbucket DC client", "target", name, "error", err)
+			continue
+		}
+
+		if err := client.VerifyConnection(ctx); err != nil {
+			slog.Error(
+				"Bitbucket DC target verification failed",
+				"target",
+				name,
+				"username",
+				target.Username,
+				"len(apiToken)",
+				len(target.ApiToken),
+				"error",
+				err,
+			)
+		} else {
+			slog.Info(
+				"Bitbucket DC target verification succeeded",
+				"target",
+				name,
+				"username",
+				target.Username,
+				"len(apiToken)",
+				len(target.ApiToken),
+			)
+		}
 	}
 }
 
