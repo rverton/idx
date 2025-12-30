@@ -11,7 +11,7 @@ import (
 )
 
 const hasMemoryKey = `-- name: HasMemoryKey :one
-select exists(select 1 from memory where key = ?) as has_key
+select exists(select 1 from memories where key = ?) as has_key
 `
 
 func (q *Queries) HasMemoryKey(ctx context.Context, key string) (int64, error) {
@@ -66,7 +66,7 @@ func (q *Queries) ListRuns(ctx context.Context) ([]Run, error) {
 }
 
 const setMemoryKey = `-- name: SetMemoryKey :exec
-insert or ignore into memory (key, target_type, target_name, run_id) values (?, ?, ?, ?)
+insert or ignore into memories (key, target_type, target_name, run_id) values (?, ?, ?, ?)
 `
 
 type SetMemoryKeyParams struct {

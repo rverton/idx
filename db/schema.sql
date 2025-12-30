@@ -8,7 +8,7 @@ create table if not exists runs (
 
 create index if not exists idx_runs_started_at on runs(started_at desc);
 
-create table if not exists memory (
+create table if not exists memories (
     key text primary key,
     target_type text not null,
     target_name text not null,
@@ -16,5 +16,5 @@ create table if not exists memory (
     run_id integer references runs(id)
 ) strict;
 
-create index if not exists idx_memory_target on memory(target_type, target_name);
-create index if not exists idx_memory_run_id on memory(run_id);
+create index if not exists idx_memories_target on memories(target_type, target_name);
+create index if not exists idx_memories_run_id on memories(run_id);
