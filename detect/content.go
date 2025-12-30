@@ -8,6 +8,11 @@ type Content struct {
 	Location []string
 }
 
+type MemoryStore struct {
+	Has func(key string) bool
+	Set func(key string)
+}
+
 type Finding struct {
 	Rule       Rule
 	ContentKey string

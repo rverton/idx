@@ -10,17 +10,23 @@ import (
 	"database/sql"
 )
 
-const insertRun = `-- name: InsertRun :one
-insert into runs (id, started_at, status) values (?, ?, 'running') returning id
+const hasMemoryKey = `-- name: HasMemoryKey :one
+select exists(select 1 from memory where key = ?) as has_key
 `
 
-type InsertRunParams struct {
-	ID        int64
-	StartedAt int64
+func (q *Queries) HasMemoryKey(ctx context.Context, key string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, hasMemoryKey, key)
+	var has_key int64
+	err := row.Scan(&has_key)
+	return has_key, err
 }
 
-func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertRun, arg.ID, arg.StartedAt)
+const insertRun = `-- name: InsertRun :one
+insert into runs (started_at, status) values (?, 'running') returning id
+`
+
+func (q *Queries) InsertRun(ctx context.Context, startedAt int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertRun, startedAt)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -57,6 +63,27 @@ func (q *Queries) ListRuns(ctx context.Context) ([]Run, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setMemoryKey = `-- name: SetMemoryKey :exec
+insert or ignore into memory (key, target_type, target_name, run_id) values (?, ?, ?, ?)
+`
+
+type SetMemoryKeyParams struct {
+	Key        string
+	TargetType string
+	TargetName string
+	RunID      sql.NullInt64
+}
+
+func (q *Queries) SetMemoryKey(ctx context.Context, arg SetMemoryKeyParams) error {
+	_, err := q.db.ExecContext(ctx, setMemoryKey,
+		arg.Key,
+		arg.TargetType,
+		arg.TargetName,
+		arg.RunID,
+	)
+	return err
 }
 
 const updateRun = `-- name: UpdateRun :exec

@@ -8,6 +8,14 @@ import (
 	"database/sql"
 )
 
+type Memory struct {
+	Key        string
+	TargetType string
+	TargetName string
+	AnalyzedAt int64
+	RunID      sql.NullInt64
+}
+
 type Run struct {
 	ID           int64
 	Status       string

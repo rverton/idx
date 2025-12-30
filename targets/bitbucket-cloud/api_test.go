@@ -48,6 +48,13 @@ func setupTestRepo(t *testing.T) string {
 	return dir
 }
 
+func noopMemoryStore() detect.MemoryStore {
+	return detect.MemoryStore{
+		Has: func(key string) bool { return false },
+		Set: func(key string) {},
+	}
+}
+
 func TestAnalyseRepo_CallsAnalyze(t *testing.T) {
 	repoPath := setupTestRepo(t)
 	repoName := "workspace/test-repo"
@@ -57,7 +64,7 @@ func TestAnalyseRepo_CallsAnalyze(t *testing.T) {
 		contents = append(contents, content)
 	}
 
-	analyseRepo(repoPath, repoName, analyze)
+	analyseRepo(repoPath, repoName, "test-target", analyze, noopMemoryStore())
 
 	if len(contents) == 0 {
 		t.Error("expected analyze to be called at least once")
@@ -73,7 +80,7 @@ func TestAnalyseRepo_ContentFormat(t *testing.T) {
 		contents = append(contents, content)
 	}
 
-	analyseRepo(repoPath, repoName, analyze)
+	analyseRepo(repoPath, repoName, "test-target", analyze, noopMemoryStore())
 
 	if len(contents) == 0 {
 		t.Fatal("expected at least one content item")
@@ -126,9 +133,46 @@ func TestAnalyseRepo_InvalidPath(t *testing.T) {
 	}
 
 	// Should not panic, just log error
-	analyseRepo("/nonexistent/path", "repo", analyze)
+	analyseRepo("/nonexistent/path", "repo", "test-target", analyze, noopMemoryStore())
 
 	if len(contents) != 0 {
 		t.Error("expected no content for invalid path")
+	}
+}
+
+func TestAnalyseRepo_MemoryStoreSkipsAnalyzed(t *testing.T) {
+	repoPath := setupTestRepo(t)
+	repoName := "workspace/test-repo"
+
+	seenKeys := make(map[string]bool)
+	memory := detect.MemoryStore{
+		Has: func(key string) bool {
+			return seenKeys[key]
+		},
+		Set: func(key string) {
+			seenKeys[key] = true
+		},
+	}
+
+	var firstRunContents []detect.Content
+	analyze := func(content detect.Content) {
+		firstRunContents = append(firstRunContents, content)
+	}
+
+	analyseRepo(repoPath, repoName, "test-target", analyze, memory)
+
+	if len(firstRunContents) == 0 {
+		t.Fatal("expected at least one content item on first run")
+	}
+
+	var secondRunContents []detect.Content
+	analyze2 := func(content detect.Content) {
+		secondRunContents = append(secondRunContents, content)
+	}
+
+	analyseRepo(repoPath, repoName, "test-target", analyze2, memory)
+
+	if len(secondRunContents) != 0 {
+		t.Errorf("expected no content on second run (should be skipped by memory), got %d items", len(secondRunContents))
 	}
 }

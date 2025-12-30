@@ -191,6 +191,7 @@ func (c *APIClient) listRepositories(ctx context.Context, workspaces []string) (
 func Explore(
 	ctx context.Context,
 	analyze func(content detect.Content),
+	memory detect.MemoryStore,
 	name string,
 	username string,
 	apiToken string,
@@ -224,7 +225,7 @@ func Explore(
 
 		slog.Info("bitbucket-cloud: cloned repository", "repository", repo, "path", repoPath)
 
-		analyseRepo(repoPath, repo, analyze)
+		analyseRepo(repoPath, repo, name, analyze, memory)
 	}
 
 	return nil
@@ -232,8 +233,19 @@ func Explore(
 
 // analyseRepo analyzes the repository at the given path going through every
 // commit and file, constructing a detect.Content object for each change found.
-func analyseRepo(path string, repo string, analyze func(content detect.Content)) {
+func analyseRepo(path, repo, targetName string, analyze func(content detect.Content), memory detect.MemoryStore) {
+	var lastCommit string
 	err := tools.IterateCommits(path, func(fc tools.FileChange) error {
+		memoryKey := fmt.Sprintf("bitbucket-cloud/%s/%s/%s", targetName, repo, fc.CommitHash)
+
+		if fc.CommitHash != lastCommit {
+			if memory.Has(memoryKey) {
+				slog.Debug("skipping already analyzed commit", "repo", repo, "commit", fc.CommitHash[:8])
+				return nil
+			}
+			lastCommit = fc.CommitHash
+		}
+
 		content := detect.Content{
 			Key:  fmt.Sprintf("%s:%s:%s", repo, fc.CommitHash[:8], fc.FilePath),
 			Data: []byte(fc.Patch),
@@ -245,6 +257,7 @@ func analyseRepo(path string, repo string, analyze func(content detect.Content))
 			},
 		}
 		analyze(content)
+		memory.Set(memoryKey)
 		return nil
 	})
 	if err != nil {

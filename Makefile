@@ -27,3 +27,6 @@ audit:
 
 db/generate:
 	cd ./db && sqlc generate
+
+db/reset:
+	rm idx.db idx.db-shm idx.db-wal || true

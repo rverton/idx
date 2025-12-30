@@ -19,6 +19,7 @@ import (
 )
 
 var rootFlags = ff.NewFlagSet("idx")
+var verbose = rootFlags.Bool('v', "verbose", "Enable debug logging")
 
 const (
 	configFilename    = "config.json"
@@ -36,6 +37,9 @@ func main() {
 			listRunsCmd(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
+			if *verbose {
+				slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+			}
 			slog.Info("internal data explorer started")
 
 			config, err := loadConfig(configFilename, configFilenameEnc)
@@ -48,14 +52,12 @@ func main() {
 				return fmt.Errorf("failed to connect to database: %w", err)
 			}
 
-			runId, err := queries.InsertRun(ctx, db.InsertRunParams{
-				StartedAt: time.Now().Unix(),
-			})
+			runId, err := queries.InsertRun(ctx, time.Now().Unix())
 			if err != nil {
 				return fmt.Errorf("failed to update run: %w", err)
 			}
 
-			if err := idx.Explore(ctx, config); err != nil {
+			if err := idx.Explore(ctx, config, queries, runId); err != nil {
 				if err := queries.UpdateRun(ctx, db.UpdateRunParams{
 					ID:     runId,
 					Status: "failed",

@@ -38,3 +38,46 @@ Then, you can start the idx server:
 ```bash
 idx
 ```
+
+## Development
+
+### Target Callbacks
+
+Each target's `Explore` function receives two callbacks that decouple the target implementation from the core analysis and persistence logic.
+
+#### Analyze Callback
+
+```go
+analyze func(content detect.Content)
+```
+
+Called for each piece of content discovered during exploration. The callback receives a `detect.Content` struct containing:
+
+- `Key` - Unique identifier for the content (e.g., `repo:commithash:filepath`)
+- `Data` - Raw content bytes to analyze
+- `Location` - Breadcrumb trail for the content (e.g., `["bitbucket-cloud", "repo", "commit", "file"]`)
+
+The core implementation runs detection rules against the content and logs findings.
+
+#### Memory Callback
+
+```go
+type MemoryStore struct {
+    Has func(key string) bool
+    Set func(key string)
+}
+```
+
+Provides persistent memory to avoid re-analyzing content across runs. Each target type defines its own key format appropriate for its content granularity (e.g., commits for git-based targets, file paths for file shares, etc.).
+
+Usage pattern in target implementations:
+
+```go
+if memory.Has(key) {
+    return nil  // skip already analyzed
+}
+// ... analyze content ...
+memory.Set(key)
+```
+
+Both callbacks are created by the core `Explore` function and passed to each target, keeping targets stateless and testable.
