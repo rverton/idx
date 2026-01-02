@@ -4,7 +4,4 @@
 config.json
 config.json.enc
 dist
-idx.db
-idx.db-shm
-idx.db-wal
-idx
+idx.db*
