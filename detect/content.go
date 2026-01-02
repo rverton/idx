@@ -212,15 +212,6 @@ var DefaultDetector = Detector{
 			},
 		},
 		{
-			Name:        "Atlassian API Token",
-			Description: "Detects Atlassian API tokens",
-			Regex:       regexp.MustCompile(`(?i)atlassian.{0,20}\b([a-zA-Z0-9-]{24})\b`),
-			RegexVerifier: []string{
-				`atlassian_token = "abcd1234efgh5678ijkl9012"`,
-				`ATLASSIAN_API_KEY=ABCDEFGHIJ1234567890abcd`,
-			},
-		},
-		{
 			Name:        "GCP Service Account Key",
 			Description: "Detects Google Cloud Platform service account JSON keys",
 			Regex:       regexp.MustCompile(`"type"\s*:\s*"service_account"[^}]*"private_key"`),
