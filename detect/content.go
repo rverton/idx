@@ -67,10 +67,11 @@ var DefaultDetector = Detector{
 		{
 			Name:        "PostgreSQL Connection String",
 			Description: "Detects PostgreSQL connection strings",
-			Regex:       regexp.MustCompile(`(?i)postgres(?:ql)?:\/\/(?:[a-zA-Z0-9_.-]+)(?::[a-zA-Z0-9_.-]+)?@(?:[a-zA-Z0-9_.-]+)(?::\d+)?\/[a-zA-Z0-9_.-]+`),
+			Regex:       regexp.MustCompile(`(?i)postgres(?:ql)?(?:\+[a-zA-Z0-9_]+)?:\/\/(?:[a-zA-Z0-9_.-]+)(?::[a-zA-Z0-9_.-]+)?@(?:[a-zA-Z0-9_.-]+)(?::\d+)?\/[a-zA-Z0-9_.-]+`),
 			RegexVerifier: []string{
 				`postgresql://user:password@localhost:5432/mydatabase`,
 				`postgres://user@localhost/mydatabase`,
+				`postgresql+psycopg2://foox:bary@a-db:5432/mydatabase`,
 			},
 		},
 		{
