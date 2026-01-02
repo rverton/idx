@@ -6,9 +6,29 @@ import (
 
 type Config struct {
 	Targets struct {
-		BitbucketCloud map[string]TargetBitbucketConfig `json:"bitbucket-cloud"`
-		BitbucketDC    map[string]TargetBitbucketConfig `json:"bitbucket-dc"`
+		BitbucketCloud map[string]TargetBitbucketConfig  `json:"bitbucket-cloud"`
+		BitbucketDC    map[string]TargetBitbucketConfig  `json:"bitbucket-dc"`
+		ConfluenceDC   map[string]TargetConfluenceConfig `json:"confluence-dc"`
 	} `json:"targets"`
+}
+
+type TargetConfluenceConfig struct {
+	ApiToken             string   `json:"apiToken"`
+	BaseURL              string   `json:"baseURL"`
+	SpaceNames           []string `json:"spaceNames"`
+	DisableHistorySearch bool     `json:"disableHistorySearch"`
+	Disabled             bool     `json:"disabled"`
+}
+
+func (t TargetConfluenceConfig) MarshalJSON() ([]byte, error) {
+	type Alias TargetConfluenceConfig
+	return json.Marshal(&struct {
+		*Alias
+		ApiToken string `json:"apiToken"`
+	}{
+		Alias:    (*Alias)(&t),
+		ApiToken: "REDACTED",
+	})
 }
 
 // TargetBitbucketConfig defines the configuration for a Bitbucket target.

@@ -17,7 +17,8 @@ sources for secrets and sensitive information.
 ### Supported Targets
 
 - Bitbucket Cloud
-- Bitbucket Server (Data Center)
+- Bitbucket Data Center
+- Confluence Data Center
 
 ## Usage
 

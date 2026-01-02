@@ -8,6 +8,7 @@ import (
 	"idx/detect"
 	bitbucketcloud "idx/targets/bitbucket-cloud"
 	bitbucketdc "idx/targets/bitbucket-dc"
+	confluencedc "idx/targets/confluence-dc"
 	"log/slog"
 	"strings"
 	"time"
@@ -66,6 +67,33 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			target.ApiToken,
 		); err != nil {
 			return fmt.Errorf("failed to explore Bitbucket DC target %s: %w", name, err)
+		}
+
+		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+	}
+
+	for name, target := range config.Targets.ConfluenceDC {
+		if target.Disabled {
+			continue
+		}
+
+		slog.Info("start exploring", "target", name)
+		start := time.Now()
+
+		memory := newMemoryStore(ctx, queries, "confluence-dc", name, runID)
+		analyse := newAnalyzeFunc(ctx, queries, &detector, "confluence-dc", name, runID)
+
+		if err := confluencedc.Explore(
+			ctx,
+			analyse,
+			memory,
+			name,
+			target.BaseURL,
+			target.ApiToken,
+			target.SpaceNames,
+			target.DisableHistorySearch,
+		); err != nil {
+			return fmt.Errorf("failed to explore Confluence DC target %s: %w", name, err)
 		}
 
 		slog.Info("finished exploring", "target", name, "duration", time.Since(start))

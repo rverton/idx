@@ -5,7 +5,7 @@ const tplConfig = `{
         "bitbucket-cloud": {
             "example-cloud-target": {
                 "username": "your-bitbucket-username",
-                "apiToken": "your-app-password",
+                "apiToken": "your-app-password"
             }
         },
         "bitbucket-dc": {
@@ -13,6 +13,14 @@ const tplConfig = `{
                 "username": "your-bitbucket-username",
                 "apiToken": "your-personal-access-token",
                 "baseURL": "https://your.bitbucket.server.com"
+            }
+        },
+        "confluence-dc": {
+            "example-confluence-target": {
+                "apiToken": "your-personal-access-token",
+                "baseURL": "https://your.confluence.server.com",
+                "spaceNames": ["My Space", "Another Space"],
+				"disableHistorySearch": false
             }
         }
     }

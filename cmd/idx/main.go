@@ -9,6 +9,7 @@ import (
 	"idx/db"
 	bitbucketcloud "idx/targets/bitbucket-cloud"
 	bitbucketdc "idx/targets/bitbucket-dc"
+	confluencedc "idx/targets/confluence-dc"
 	"log"
 	"log/slog"
 	"os"
@@ -209,6 +210,9 @@ func configListTargetsCmd() *ff.Command {
 			for name := range config.Targets.BitbucketDC {
 				fmt.Printf("- Bitbucket Data Center: %s\n", name)
 			}
+			for name := range config.Targets.ConfluenceDC {
+				fmt.Printf("- Confluence Data Center: %s\n", name)
+			}
 
 			return nil
 		},
@@ -395,6 +399,35 @@ func verifyTargets(ctx context.Context, config *idx.Config) {
 				name,
 				"username",
 				target.Username,
+				"len(apiToken)",
+				len(target.ApiToken),
+			)
+		}
+	}
+
+	// Verify Confluence Data Center targets
+	for name, target := range config.Targets.ConfluenceDC {
+		client, err := confluencedc.NewAPIClient(target.BaseURL, target.ApiToken)
+		if err != nil {
+			slog.Error("failed to create Confluence DC client", "target", name, "error", err)
+			continue
+		}
+
+		if err := client.VerifyConnection(ctx); err != nil {
+			slog.Error(
+				"Confluence DC target verification failed",
+				"target",
+				name,
+				"len(apiToken)",
+				len(target.ApiToken),
+				"error",
+				err,
+			)
+		} else {
+			slog.Info(
+				"Confluence DC target verification succeeded",
+				"target",
+				name,
 				"len(apiToken)",
 				len(target.ApiToken),
 			)
