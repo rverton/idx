@@ -9,6 +9,7 @@ import (
 	bitbucketcloud "idx/targets/bitbucket-cloud"
 	bitbucketdc "idx/targets/bitbucket-dc"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -27,7 +28,7 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 		memory := newMemoryStore(ctx, queries, "bitbucket-cloud", name, runID)
 
 		// analyze function processes content blobs and runs detection on them
-		analyse := newAnalyzeFunc(&detector)
+		analyse := newAnalyzeFunc(ctx, queries, &detector, "bitbucket-cloud", name, runID)
 
 		if err := bitbucketcloud.Explore(
 			ctx,
@@ -53,7 +54,7 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 		start := time.Now()
 
 		memory := newMemoryStore(ctx, queries, "bitbucket-dc", name, runID)
-		analyse := newAnalyzeFunc(&detector)
+		analyse := newAnalyzeFunc(ctx, queries, &detector, "bitbucket-dc", name, runID)
 
 		if err := bitbucketdc.Explore(
 			ctx,
@@ -97,7 +98,7 @@ func newMemoryStore(ctx context.Context, q *db.Queries, targetType, targetName s
 	}
 }
 
-func newAnalyzeFunc(detector *detect.Detector) func(content detect.Content) {
+func newAnalyzeFunc(ctx context.Context, q *db.Queries, detector *detect.Detector, targetType, targetName string, runID int64) func(content detect.Content) {
 	return func(content detect.Content) {
 		slog.Debug("analyzing content", "key", content.Key, "location", content.Location)
 
@@ -108,6 +109,19 @@ func newAnalyzeFunc(detector *detect.Detector) func(content detect.Content) {
 				"content_key", finding.ContentKey,
 				"location", finding.Location,
 			)
+
+			if err := q.InsertFinding(ctx, db.InsertFindingParams{
+				RunID:           runID,
+				TargetType:      targetType,
+				TargetName:      targetName,
+				RuleName:        finding.Rule.Name,
+				RuleDescription: finding.Rule.Description,
+				ContentKey:      finding.ContentKey,
+				Location:        strings.Join(finding.Location, "/"),
+				Match:           finding.Match,
+			}); err != nil {
+				slog.Error("failed to insert finding", "error", err)
+			}
 		}
 	}
 }

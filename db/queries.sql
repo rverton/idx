@@ -12,3 +12,10 @@ select exists(select 1 from memories where key = ?) as has_key;
 
 -- name: SetMemoryKey :exec
 insert or ignore into memories (key, target_type, target_name, run_id) values (?, ?, ?, ?);
+
+-- name: InsertFinding :exec
+insert or ignore into findings (run_id, target_type, target_name, rule_name, rule_description, content_key, location, match)
+values (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListFindings :many
+select * from findings order by detected_at desc;

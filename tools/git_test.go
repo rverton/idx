@@ -220,3 +220,66 @@ func TestIterateCommits_DeletedFile(t *testing.T) {
 		t.Error("expected to find deletion change with correct FilePath")
 	}
 }
+
+func TestFileChange_Additions(t *testing.T) {
+	tests := []struct {
+		name     string
+		patch    string
+		expected string
+	}{
+		{
+			name: "extracts only added lines",
+			patch: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,4 @@
+ context line
++added line
+ another context
+-removed line`,
+			expected: "added line",
+		},
+		{
+			name: "multiple additions",
+			patch: `diff --git a/file.txt b/file.txt
++++ b/file.txt
+@@ -1,2 +1,4 @@
++first addition
+ context
++second addition`,
+			expected: "first addition\nsecond addition",
+		},
+		{
+			name: "ignores +++ header",
+			patch: `diff --git a/file.txt b/file.txt
++++ b/file.txt
++real addition`,
+			expected: "real addition",
+		},
+		{
+			name: "empty patch returns empty string",
+			patch: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1 +1 @@
+-old line`,
+			expected: "",
+		},
+		{
+			name: "preserves content after + prefix",
+			patch: `+password=secret123
++api_key="AKIAIOSFODNN7EXAMPLE"`,
+			expected: "password=secret123\napi_key=\"AKIAIOSFODNN7EXAMPLE\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fc := FileChange{Patch: tt.patch}
+			got := fc.Additions()
+			if got != tt.expected {
+				t.Errorf("Additions() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}

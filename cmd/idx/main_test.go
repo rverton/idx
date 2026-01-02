@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"idx/db"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestEncryptDecryptAES tests the basic AES encryption and decryption functions.
@@ -219,5 +222,91 @@ func TestLoadConfig(t *testing.T) {
 
 	if target.BaseURL != "https://api.bitbucket.org" {
 		t.Errorf("Expected baseURL 'https://api.bitbucket.org', got %q", target.BaseURL)
+	}
+}
+
+func TestListFindingsCmd_Empty(t *testing.T) {
+	tempDir := t.TempDir()
+	originalWd, _ := os.Getwd()
+	err := os.Chdir(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
+	defer os.Chdir(originalWd)
+
+	cmd := listFindingsCmd()
+	err = cmd.Exec(context.Background(), []string{})
+	if err != nil {
+		t.Fatalf("list-findings command failed: %v", err)
+	}
+}
+
+func TestListFindingsCmd_WithFindings(t *testing.T) {
+	tempDir := t.TempDir()
+	originalWd, _ := os.Getwd()
+	err := os.Chdir(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
+	defer os.Chdir(originalWd)
+
+	ctx := context.Background()
+
+	queries, err := db.Connect(ctx, dbFilename)
+	if err != nil {
+		t.Fatalf("failed to connect to database: %v", err)
+	}
+
+	runID, err := queries.InsertRun(ctx, time.Now().Unix())
+	if err != nil {
+		t.Fatalf("failed to insert run: %v", err)
+	}
+
+	err = queries.InsertFinding(ctx, db.InsertFindingParams{
+		RunID:           runID,
+		TargetType:      "bitbucket-cloud",
+		TargetName:      "test-target",
+		RuleName:        "AWS Access Key",
+		RuleDescription: "Detects AWS Access Keys",
+		ContentKey:      "test-key",
+		Location:        "repo/file.txt",
+		Match:           "AKIAIOSFODNN7EXAMPLE",
+	})
+	if err != nil {
+		t.Fatalf("failed to insert finding: %v", err)
+	}
+
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	cmd := listFindingsCmd()
+	err = cmd.Exec(context.Background(), []string{})
+	if err != nil {
+		w.Close()
+		os.Stdout = oldStdout
+		t.Fatalf("list-findings command failed: %v", err)
+	}
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	expectedStrings := []string{
+		"Findings:",
+		"AWS Access Key",
+		"bitbucket-cloud/test-target",
+		"repo/file.txt",
+		"AKIAIOSFODNN7EXAMPLE",
+	}
+
+	for _, expected := range expectedStrings {
+		if !strings.Contains(output, expected) {
+			t.Errorf("output missing expected string %q\nGot: %s", expected, output)
+		}
 	}
 }

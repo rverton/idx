@@ -21,6 +21,36 @@ func (q *Queries) HasMemoryKey(ctx context.Context, key string) (int64, error) {
 	return has_key, err
 }
 
+const insertFinding = `-- name: InsertFinding :exec
+insert or ignore into findings (run_id, target_type, target_name, rule_name, rule_description, content_key, location, match)
+values (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertFindingParams struct {
+	RunID           int64
+	TargetType      string
+	TargetName      string
+	RuleName        string
+	RuleDescription string
+	ContentKey      string
+	Location        string
+	Match           string
+}
+
+func (q *Queries) InsertFinding(ctx context.Context, arg InsertFindingParams) error {
+	_, err := q.db.ExecContext(ctx, insertFinding,
+		arg.RunID,
+		arg.TargetType,
+		arg.TargetName,
+		arg.RuleName,
+		arg.RuleDescription,
+		arg.ContentKey,
+		arg.Location,
+		arg.Match,
+	)
+	return err
+}
+
 const insertRun = `-- name: InsertRun :one
 insert into runs (started_at, status) values (?, 'running') returning id
 `
@@ -30,6 +60,44 @@ func (q *Queries) InsertRun(ctx context.Context, startedAt int64) (int64, error)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const listFindings = `-- name: ListFindings :many
+select id, run_id, target_type, target_name, rule_name, rule_description, content_key, location, "match", detected_at from findings order by detected_at desc
+`
+
+func (q *Queries) ListFindings(ctx context.Context) ([]Finding, error) {
+	rows, err := q.db.QueryContext(ctx, listFindings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Finding
+	for rows.Next() {
+		var i Finding
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.TargetType,
+			&i.TargetName,
+			&i.RuleName,
+			&i.RuleDescription,
+			&i.ContentKey,
+			&i.Location,
+			&i.Match,
+			&i.DetectedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRuns = `-- name: ListRuns :many

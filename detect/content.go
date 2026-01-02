@@ -17,6 +17,7 @@ type Finding struct {
 	Rule       Rule
 	ContentKey string
 	Location   []string
+	Match      string
 }
 
 type Rule struct {
@@ -328,11 +329,13 @@ var DefaultDetector = Detector{
 func (d *Detector) Detect(content Content) []Finding {
 	var findings []Finding
 	for _, rule := range d.Rules {
-		if rule.Regex.Match(content.Data) {
+		match := rule.Regex.Find(content.Data)
+		if match != nil {
 			finding := Finding{
 				Rule:       rule,
 				ContentKey: content.Key,
 				Location:   content.Location,
+				Match:      string(match),
 			}
 			findings = append(findings, finding)
 		}

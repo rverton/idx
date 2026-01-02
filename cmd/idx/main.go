@@ -35,6 +35,7 @@ func main() {
 		Subcommands: []*ff.Command{
 			configCmd(),
 			listRunsCmd(),
+			listFindingsCmd(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			if *verbose {
@@ -145,6 +146,42 @@ func listRunsCmd() *ff.Command {
 				}
 
 				fmt.Printf("- ID: %d, Status: %s, Started At: %s, Finished At: %s\n", run.ID, run.Status, startedAt, finishedAt)
+			}
+
+			return nil
+		},
+	}
+}
+
+func listFindingsCmd() *ff.Command {
+	return &ff.Command{
+		Name:      "list-findings",
+		Usage:     "idx list-findings",
+		ShortHelp: "Lists all findings from the database",
+		Exec: func(ctx context.Context, args []string) error {
+			queries, err := db.Connect(ctx, dbFilename)
+			if err != nil {
+				return fmt.Errorf("failed to connect to database: %w", err)
+			}
+
+			findings, err := queries.ListFindings(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to list findings: %w", err)
+			}
+
+			if len(findings) == 0 {
+				fmt.Println("No findings found.")
+				return nil
+			}
+
+			fmt.Println("Findings:")
+			for _, f := range findings {
+				detectedAt := db.FormatTimestamp(f.DetectedAt)
+				fmt.Printf("- [%s] %s: %s\n", detectedAt, f.RuleName, f.RuleDescription)
+				fmt.Printf("  Target: %s/%s\n", f.TargetType, f.TargetName)
+				fmt.Printf("  Location: %s\n", f.Location)
+				fmt.Printf("  Match: %s\n", f.Match)
+				fmt.Println()
 			}
 
 			return nil

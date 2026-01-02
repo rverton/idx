@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/go-git/go-git/v5"
@@ -61,6 +62,18 @@ type FileChange struct {
 	AuthorEmail   string
 	FilePath      string
 	Patch         string
+}
+
+// Additions returns only the added lines from the patch (lines starting with '+'),
+// excluding the file header ('+++' lines). This filters out context lines and deletions.
+func (fc FileChange) Additions() string {
+	var additions []string
+	for _, line := range strings.Split(fc.Patch, "\n") {
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			additions = append(additions, strings.TrimPrefix(line, "+"))
+		}
+	}
+	return strings.Join(additions, "\n")
 }
 
 // IterateCommits opens a repository at the given path and iterates over all commits,

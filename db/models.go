@@ -8,6 +8,19 @@ import (
 	"database/sql"
 )
 
+type Finding struct {
+	ID              int64
+	RunID           int64
+	TargetType      string
+	TargetName      string
+	RuleName        string
+	RuleDescription string
+	ContentKey      string
+	Location        string
+	Match           string
+	DetectedAt      int64
+}
+
 type Memory struct {
 	Key        string
 	TargetType string

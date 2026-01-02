@@ -100,12 +100,12 @@ func TestAnalyseRepo_ContentFormat(t *testing.T) {
 		t.Errorf("expected short hash (8 chars) in Key, got %d chars", len(parts[1]))
 	}
 
-	// Verify Data contains patch
+	// Verify Data contains added content (not full patch)
 	if len(content.Data) == 0 {
-		t.Error("expected Data to contain patch content")
+		t.Error("expected Data to contain added content")
 	}
-	if !strings.Contains(string(content.Data), "secret.txt") {
-		t.Error("expected Data to contain file name in patch")
+	if !strings.Contains(string(content.Data), "password=secret123") {
+		t.Errorf("expected Data to contain added content 'password=secret123', got %q", string(content.Data))
 	}
 
 	// Verify Location format

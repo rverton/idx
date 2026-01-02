@@ -99,6 +99,53 @@ func TestDetector_Detect_FindingFields(t *testing.T) {
 			t.Errorf("Location[%d] = %q, want %q", i, loc, content.Location[i])
 		}
 	}
+
+	if finding.Match != "AKIAIOSFODNN7EXAMPLE" {
+		t.Errorf("Match = %q, want %q", finding.Match, "AKIAIOSFODNN7EXAMPLE")
+	}
+}
+
+func TestDetector_Detect_MatchField(t *testing.T) {
+	tests := []struct {
+		name      string
+		data      string
+		wantMatch string
+	}{
+		{
+			name:      "AWS access key match",
+			data:      "credentials: AKIAIOSFODNN7EXAMPLE in config",
+			wantMatch: "AKIAIOSFODNN7EXAMPLE",
+		},
+		{
+			name:      "GitHub token match",
+			data:      "token=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+			wantMatch: "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+		},
+		{
+			name:      "match at start of content",
+			data:      "AKIAIOSFODNN7EXAMPLE",
+			wantMatch: "AKIAIOSFODNN7EXAMPLE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := Content{
+				Key:      "test",
+				Data:     []byte(tt.data),
+				Location: []string{"file"},
+			}
+
+			findings := DefaultDetector.Detect(content)
+			if len(findings) == 0 {
+				t.Fatal("expected at least 1 finding")
+			}
+
+			if findings[0].Match != tt.wantMatch {
+				t.Errorf("Match = %q, want %q", findings[0].Match, tt.wantMatch)
+			}
+		})
+	}
 }
 
 func TestDefaultDetector_RulesMatchVerifiers(t *testing.T) {

@@ -99,10 +99,10 @@ func TestAnalyseRepo_ContentFormat(t *testing.T) {
 	}
 
 	if len(content.Data) == 0 {
-		t.Error("expected Data to contain patch content")
+		t.Error("expected Data to contain added content")
 	}
-	if !strings.Contains(string(content.Data), "secret.txt") {
-		t.Error("expected Data to contain file name in patch")
+	if !strings.Contains(string(content.Data), "password=secret123") {
+		t.Errorf("expected Data to contain added content 'password=secret123', got %q", string(content.Data))
 	}
 
 	if len(content.Location) != 4 {

@@ -262,9 +262,14 @@ func analyseRepo(path, repo, targetName string, analyze func(content detect.Cont
 			lastCommit = fc.CommitHash
 		}
 
+		additions := fc.Additions()
+		if additions == "" {
+			return nil
+		}
+
 		content := detect.Content{
 			Key:  fmt.Sprintf("%s:%s:%s", repo, fc.CommitHash[:8], fc.FilePath),
-			Data: []byte(fc.Patch),
+			Data: []byte(additions),
 			Location: []string{
 				"bitbucket-dc",
 				repo,
