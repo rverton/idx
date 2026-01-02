@@ -9,9 +9,6 @@ test/ldapserver:
 install:
 	go install -tags 'sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 
-build:
-	go build -o ./dist/$(bin) ./cmd/$(bin)/
-
 release:
 	goreleaser release --clean
 

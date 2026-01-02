@@ -7,6 +7,7 @@ import (
 	"idx/db"
 	"idx/detect"
 	bitbucketcloud "idx/targets/bitbucket-cloud"
+	bitbucketdc "idx/targets/bitbucket-dc"
 	"log/slog"
 	"time"
 )
@@ -38,6 +39,32 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			target.Workspaces,
 		); err != nil {
 			return fmt.Errorf("failed to explore Bitbucket Cloud target %s: %w", name, err)
+		}
+
+		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+	}
+
+	for name, target := range config.Targets.BitbucketDC {
+		if target.Disabled {
+			continue
+		}
+
+		slog.Info("start exploring", "target", name)
+		start := time.Now()
+
+		memory := newMemoryStore(ctx, queries, "bitbucket-dc", name, runID)
+		analyse := newAnalyzeFunc(&detector)
+
+		if err := bitbucketdc.Explore(
+			ctx,
+			analyse,
+			memory,
+			name,
+			target.BaseURL,
+			target.Username,
+			target.ApiToken,
+		); err != nil {
+			return fmt.Errorf("failed to explore Bitbucket DC target %s: %w", name, err)
 		}
 
 		slog.Info("finished exploring", "target", name, "duration", time.Since(start))

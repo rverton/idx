@@ -7,12 +7,17 @@ information.
 - Single binary, single (encrypted at rest) config file
 - Local sqlite database for storing runs and findings
 
-## Differentiation to other tools
+### Differentiation to other tools
 
 Most secret detection tools are focused on a single task: scanning a source for secrets. They fall
 short when it comes to everything around like source handling, scheduling, alerting, and managing
 findings. idx aims to fill that gap by providing a complete solution for monitoring internal data
 sources for secrets and sensitive information.
+
+### Supported Targets
+
+- Bitbucket Cloud
+- Bitbucket Server (Data Center)
 
 ## Usage
 
