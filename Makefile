@@ -1,6 +1,9 @@
 bin = idx
 
 test:
+	go test -short -v ./...
+
+test/full:
 	go test -v ./...
 
 

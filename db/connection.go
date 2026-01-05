@@ -37,6 +37,7 @@ func Connect(ctx context.Context, dbname string) (*Queries, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
 
 	if err := configure(db); err != nil {
 		db.Close()
