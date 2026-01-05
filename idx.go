@@ -26,21 +26,21 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 	detector := detect.DefaultDetector
 
 	// we are using an errgroup to explore multiple targets concurrently
-	// while limiting the number of concurrent explorations
-	// to avoid overwhelming the system.
+	// while limiting the number of concurrent explorations to avoid
+	// overwhelming the system.
 	//
 	// there are different layers where we can use concurrency here, but we choose
 	// to limit it at the target level for simplicity and to avoid hitting rate limits
-	// when more than one target is using the same service.
-	g, ctx := errgroup.WithContext(ctx)
+	// when more than one target (for a specific type) is using the same service.
+	g := errgroup.Group{}
 	g.SetLimit(concurrencyLimit)
 
-	for name, target := range config.Targets.BitbucketCloud {
-		if target.Disabled {
-			continue
-		}
+	g.Go(func() error {
+		for name, target := range config.Targets.BitbucketCloud {
+			if target.Disabled {
+				continue
+			}
 
-		g.Go(func() error {
 			slog.Info("start exploring", "target", name)
 			start := time.Now()
 
@@ -60,16 +60,17 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
-			return nil
-		})
-	}
-
-	for name, target := range config.Targets.BitbucketDC {
-		if target.Disabled {
-			continue
 		}
 
-		g.Go(func() error {
+		return nil
+	})
+
+	g.Go(func() error {
+		for name, target := range config.Targets.BitbucketDC {
+			if target.Disabled {
+				continue
+			}
+
 			slog.Info("start exploring", "target", name)
 			start := time.Now()
 
@@ -89,16 +90,16 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
-			return nil
-		})
-	}
-
-	for name, target := range config.Targets.ConfluenceDC {
-		if target.Disabled {
-			continue
 		}
+		return nil
+	})
 
-		g.Go(func() error {
+	g.Go(func() error {
+		for name, target := range config.Targets.ConfluenceDC {
+			if target.Disabled {
+				continue
+			}
+
 			slog.Info("start exploring", "target", name)
 			start := time.Now()
 
@@ -119,16 +120,16 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
-			return nil
-		})
-	}
-
-	for name, target := range config.Targets.JiraDC {
-		if target.Disabled {
-			continue
 		}
+		return nil
+	})
 
-		g.Go(func() error {
+	g.Go(func() error {
+		for name, target := range config.Targets.JiraDC {
+			if target.Disabled {
+				continue
+			}
+
 			slog.Info("start exploring", "target", name)
 			start := time.Now()
 
@@ -150,16 +151,16 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
-			return nil
-		})
-	}
-
-	for name, target := range config.Targets.SMB {
-		if target.Disabled {
-			continue
 		}
+		return nil
+	})
 
-		g.Go(func() error {
+	g.Go(func() error {
+		for name, target := range config.Targets.SMB {
+			if target.Disabled {
+				continue
+			}
+
 			slog.Info("start exploring", "target", name)
 			start := time.Now()
 
@@ -184,9 +185,9 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
-			return nil
-		})
-	}
+		}
+		return nil
+	})
 
 	return g.Wait()
 }

@@ -24,7 +24,7 @@ import (
 
 var rootFlags = ff.NewFlagSet("idx")
 var verbose = rootFlags.Bool('v', "verbose", "Enable debug logging")
-var concurrencyLimit = rootFlags.IntLong("concurrency", 3, "Concurrency limit for target exploration")
+var concurrencyLimit = rootFlags.Int('c', "concurrency", -1, "how many types of targets to explore concurrently (default: one worker per type)")
 
 const (
 	configFilename    = "config.json"
