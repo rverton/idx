@@ -19,10 +19,12 @@ import (
 
 	"github.com/peterbourgon/ff/v4"
 	"github.com/peterbourgon/ff/v4/ffhelp"
+	"golang.org/x/sync/errgroup"
 )
 
 var rootFlags = ff.NewFlagSet("idx")
 var verbose = rootFlags.Bool('v', "verbose", "Enable debug logging")
+var concurrencyLimit = rootFlags.IntLong("concurrency", 3, "Concurrency limit for target exploration")
 
 const (
 	configFilename    = "config.json"
@@ -61,7 +63,7 @@ func main() {
 				return fmt.Errorf("failed to update run: %w", err)
 			}
 
-			if err := idx.Explore(ctx, config, queries, runId); err != nil {
+			if err := idx.Explore(ctx, config, queries, runId, *concurrencyLimit); err != nil {
 				if err := queries.UpdateRun(ctx, db.UpdateRunParams{
 					ID:     runId,
 					Status: "failed",
@@ -228,10 +230,10 @@ func configListTargetsCmd() *ff.Command {
 }
 
 func configVerifyCmd() *ff.Command {
-	flags := ff.NewFlagSet("verify")
+	flags := ff.NewFlagSet("verify").SetParent(rootFlags)
 	return &ff.Command{
 		Name:      "verify",
-		Usage:     "idx config verify [target]",
+		Usage:     "idx config verify [--concurrency N]",
 		ShortHelp: "Verifies the config file structure and tests connections",
 		Flags:     flags,
 		Exec: func(ctx context.Context, args []string) error {
@@ -240,7 +242,7 @@ func configVerifyCmd() *ff.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			verifyTargets(ctx, config)
+			verifyTargets(ctx, config, *concurrencyLimit)
 
 			return nil
 		},
@@ -347,155 +349,175 @@ type verificationResult struct {
 	Duration time.Duration
 }
 
-func verifyTargets(ctx context.Context, config *idx.Config) {
-	for name, target := range config.Targets.BitbucketCloud {
-		client, err := bitbucketcloud.NewAPIClient(target.Username, target.ApiToken)
-		if err != nil {
-			slog.Error("failed to create Bitbucket Cloud client", "target", name, "error", err)
-			continue
-		}
+func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int) {
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(concurrencyLimit)
 
-		if err := client.VerifyConnection(ctx); err != nil {
-			slog.Error(
-				"Bitbucket Cloud target verification failed",
-				"target",
-				name,
-				"username",
-				target.Username,
-				"len(apiToken)",
-				len(target.ApiToken),
-				"error",
-				err,
-			)
-		} else {
-			slog.Info(
-				"Bitbucket Cloud target verification succeeded",
-				"target",
-				name,
-				"username",
-				target.Username,
-				"len(apiToken)",
-				len(target.ApiToken),
-			)
-		}
+	for name, target := range config.Targets.BitbucketCloud {
+		g.Go(func() error {
+			client, err := bitbucketcloud.NewAPIClient(target.Username, target.ApiToken)
+			if err != nil {
+				slog.Error("failed to create Bitbucket Cloud client", "target", name, "error", err)
+				return nil
+			}
+
+			if err := client.VerifyConnection(ctx); err != nil {
+				slog.Error(
+					"Bitbucket Cloud target verification failed",
+					"target",
+					name,
+					"username",
+					target.Username,
+					"len(apiToken)",
+					len(target.ApiToken),
+					"error",
+					err,
+				)
+			} else {
+				slog.Info(
+					"Bitbucket Cloud target verification succeeded",
+					"target",
+					name,
+					"username",
+					target.Username,
+					"len(apiToken)",
+					len(target.ApiToken),
+				)
+			}
+			return nil
+		})
 	}
 
 	for name, target := range config.Targets.BitbucketDC {
-		client, err := bitbucketdc.NewAPIClient(target.BaseURL, target.Username, target.ApiToken)
-		if err != nil {
-			slog.Error("failed to create Bitbucket DC client", "target", name, "error", err)
-			continue
-		}
+		g.Go(func() error {
+			client, err := bitbucketdc.NewAPIClient(target.BaseURL, target.Username, target.ApiToken)
+			if err != nil {
+				slog.Error("failed to create Bitbucket DC client", "target", name, "error", err)
+				return nil
+			}
 
-		if err := client.VerifyConnection(ctx); err != nil {
-			slog.Error(
-				"Bitbucket DC target verification failed",
-				"target",
-				name,
-				"username",
-				target.Username,
-				"len(apiToken)",
-				len(target.ApiToken),
-				"error",
-				err,
-			)
-		} else {
-			slog.Info(
-				"Bitbucket DC target verification succeeded",
-				"target",
-				name,
-				"username",
-				target.Username,
-				"len(apiToken)",
-				len(target.ApiToken),
-			)
-		}
+			if err := client.VerifyConnection(ctx); err != nil {
+				slog.Error(
+					"Bitbucket DC target verification failed",
+					"target",
+					name,
+					"username",
+					target.Username,
+					"len(apiToken)",
+					len(target.ApiToken),
+					"error",
+					err,
+				)
+			} else {
+				slog.Info(
+					"Bitbucket DC target verification succeeded",
+					"target",
+					name,
+					"username",
+					target.Username,
+					"len(apiToken)",
+					len(target.ApiToken),
+				)
+			}
+			return nil
+		})
 	}
 
 	for name, target := range config.Targets.ConfluenceDC {
-		client, err := confluencedc.NewAPIClient(target.BaseURL, target.ApiToken)
-		if err != nil {
-			slog.Error("failed to create Confluence DC client", "target", name, "error", err)
-			continue
-		}
+		g.Go(func() error {
+			client, err := confluencedc.NewAPIClient(target.BaseURL, target.ApiToken)
+			if err != nil {
+				slog.Error("failed to create Confluence DC client", "target", name, "error", err)
+				return nil
+			}
 
-		if err := client.VerifyConnection(ctx); err != nil {
-			slog.Error(
-				"Confluence DC target verification failed",
-				"target",
-				name,
-				"len(apiToken)",
-				len(target.ApiToken),
-				"error",
-				err,
-			)
-		} else {
-			slog.Info(
-				"Confluence DC target verification succeeded",
-				"target",
-				name,
-				"len(apiToken)",
-				len(target.ApiToken),
-			)
-		}
+			if err := client.VerifyConnection(ctx); err != nil {
+				slog.Error(
+					"Confluence DC target verification failed",
+					"target",
+					name,
+					"len(apiToken)",
+					len(target.ApiToken),
+					"error",
+					err,
+				)
+			} else {
+				slog.Info(
+					"Confluence DC target verification succeeded",
+					"target",
+					name,
+					"len(apiToken)",
+					len(target.ApiToken),
+				)
+			}
+			return nil
+		})
 	}
 
 	for name, target := range config.Targets.JiraDC {
-		client, err := jiradc.NewAPIClient(target.BaseURL, target.ApiToken)
-		if err != nil {
-			slog.Error("failed to create Jira DC client", "target", name, "error", err)
-			continue
-		}
+		g.Go(func() error {
+			client, err := jiradc.NewAPIClient(target.BaseURL, target.ApiToken)
+			if err != nil {
+				slog.Error("failed to create Jira DC client", "target", name, "error", err)
+				return nil
+			}
 
-		if err := client.VerifyConnection(ctx); err != nil {
-			slog.Error(
-				"Jira DC target verification failed",
-				"target",
-				name,
-				"len(apiToken)",
-				len(target.ApiToken),
-				"error",
-				err,
-			)
-		} else {
-			slog.Info(
-				"Jira DC target verification succeeded",
-				"target",
-				name,
-				"len(apiToken)",
-				len(target.ApiToken),
-			)
-		}
+			if err := client.VerifyConnection(ctx); err != nil {
+				slog.Error(
+					"Jira DC target verification failed",
+					"target",
+					name,
+					"len(apiToken)",
+					len(target.ApiToken),
+					"error",
+					err,
+				)
+			} else {
+				slog.Info(
+					"Jira DC target verification succeeded",
+					"target",
+					name,
+					"len(apiToken)",
+					len(target.ApiToken),
+				)
+			}
+			return nil
+		})
 	}
 
 	for name, target := range config.Targets.SMB {
-		client, err := smb.NewClient(target.Hostname, target.Port, target.NTLMUser, target.NTLMPassword, target.Domain)
-		if err != nil {
-			slog.Error("failed to create SMB client", "target", name, "error", err)
-			continue
-		}
+		g.Go(func() error {
+			client, err := smb.NewClient(target.Hostname, target.Port, target.NTLMUser, target.NTLMPassword, target.Domain)
+			if err != nil {
+				slog.Error("failed to create SMB client", "target", name, "error", err)
+				return nil
+			}
+			defer client.Close()
 
-		if err := client.VerifyConnection(ctx); err != nil {
-			slog.Error(
-				"SMB target verification failed",
-				"target",
-				name,
-				"hostname",
-				target.Hostname,
-				"error",
-				err,
-			)
-		} else {
-			slog.Info(
-				"SMB target verification succeeded",
-				"target",
-				name,
-				"hostname",
-				target.Hostname,
-			)
-		}
-		client.Close()
+			if err := client.VerifyConnection(ctx); err != nil {
+				slog.Error(
+					"SMB target verification failed",
+					"target",
+					name,
+					"hostname",
+					target.Hostname,
+					"error",
+					err,
+				)
+			} else {
+				slog.Info(
+					"SMB target verification succeeded",
+					"target",
+					name,
+					"hostname",
+					target.Hostname,
+				)
+			}
+			return nil
+		})
 	}
+
+	g.Wait()
 }
 
 func parseConfig(content []byte) (*idx.Config, error) {

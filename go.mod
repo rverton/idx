@@ -9,6 +9,7 @@ require (
 	github.com/jfjallid/go-smb v0.6.7
 	github.com/peterbourgon/ff/v4 v4.0.0-alpha.4
 	golang.org/x/crypto v0.37.0
+	golang.org/x/sync v0.16.0
 	golang.org/x/term v0.31.0
 	modernc.org/sqlite v1.42.2
 )

@@ -14,35 +14,54 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
-func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int64) error {
+// Explore explores all configured targets concurrently with a limit on the number of concurrent explorations.
+//
+// iterating over each target type one by one looks a bit repetitive, but it makes it clear
+// what specific analysers and memory stores are being used for each target type.
+func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int64, concurrencyLimit int) error {
 	detector := detect.DefaultDetector
+
+	// we are using an errgroup to explore multiple targets concurrently
+	// while limiting the number of concurrent explorations
+	// to avoid overwhelming the system.
+	//
+	// there are different layers where we can use concurrency here, but we choose
+	// to limit it at the target level for simplicity and to avoid hitting rate limits
+	// when more than one target is using the same service.
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(concurrencyLimit)
 
 	for name, target := range config.Targets.BitbucketCloud {
 		if target.Disabled {
 			continue
 		}
 
-		slog.Info("start exploring", "target", name)
-		start := time.Now()
+		g.Go(func() error {
+			slog.Info("start exploring", "target", name)
+			start := time.Now()
 
-		memory := newMemoryStore(ctx, queries, "bitbucket-cloud", name, runID)
-		analyse := newAnalyzeFunc(ctx, queries, &detector, "bitbucket-cloud", name, runID)
+			memory := newMemoryStore(ctx, queries, "bitbucket-cloud", name, runID)
+			analyse := newAnalyzeFunc(ctx, queries, &detector, "bitbucket-cloud", name, runID)
 
-		if err := bitbucketcloud.Explore(
-			ctx,
-			analyse,
-			memory,
-			name,
-			target.Username,
-			target.ApiToken,
-			target.Workspaces,
-		); err != nil {
-			return fmt.Errorf("failed to explore Bitbucket Cloud target %s: %w", name, err)
-		}
+			if err := bitbucketcloud.Explore(
+				ctx,
+				analyse,
+				memory,
+				name,
+				target.Username,
+				target.ApiToken,
+				target.Workspaces,
+			); err != nil {
+				return fmt.Errorf("failed to explore Bitbucket Cloud target %s: %w", name, err)
+			}
 
-		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			return nil
+		})
 	}
 
 	for name, target := range config.Targets.BitbucketDC {
@@ -50,25 +69,28 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			continue
 		}
 
-		slog.Info("start exploring", "target", name)
-		start := time.Now()
+		g.Go(func() error {
+			slog.Info("start exploring", "target", name)
+			start := time.Now()
 
-		memory := newMemoryStore(ctx, queries, "bitbucket-dc", name, runID)
-		analyse := newAnalyzeFunc(ctx, queries, &detector, "bitbucket-dc", name, runID)
+			memory := newMemoryStore(ctx, queries, "bitbucket-dc", name, runID)
+			analyse := newAnalyzeFunc(ctx, queries, &detector, "bitbucket-dc", name, runID)
 
-		if err := bitbucketdc.Explore(
-			ctx,
-			analyse,
-			memory,
-			name,
-			target.BaseURL,
-			target.Username,
-			target.ApiToken,
-		); err != nil {
-			return fmt.Errorf("failed to explore Bitbucket DC target %s: %w", name, err)
-		}
+			if err := bitbucketdc.Explore(
+				ctx,
+				analyse,
+				memory,
+				name,
+				target.BaseURL,
+				target.Username,
+				target.ApiToken,
+			); err != nil {
+				return fmt.Errorf("failed to explore Bitbucket DC target %s: %w", name, err)
+			}
 
-		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			return nil
+		})
 	}
 
 	for name, target := range config.Targets.ConfluenceDC {
@@ -76,26 +98,29 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			continue
 		}
 
-		slog.Info("start exploring", "target", name)
-		start := time.Now()
+		g.Go(func() error {
+			slog.Info("start exploring", "target", name)
+			start := time.Now()
 
-		memory := newMemoryStore(ctx, queries, "confluence-dc", name, runID)
-		analyse := newAnalyzeFunc(ctx, queries, &detector, "confluence-dc", name, runID)
+			memory := newMemoryStore(ctx, queries, "confluence-dc", name, runID)
+			analyse := newAnalyzeFunc(ctx, queries, &detector, "confluence-dc", name, runID)
 
-		if err := confluencedc.Explore(
-			ctx,
-			analyse,
-			memory,
-			name,
-			target.BaseURL,
-			target.ApiToken,
-			target.SpaceNames,
-			target.DisableHistorySearch,
-		); err != nil {
-			return fmt.Errorf("failed to explore Confluence DC target %s: %w", name, err)
-		}
+			if err := confluencedc.Explore(
+				ctx,
+				analyse,
+				memory,
+				name,
+				target.BaseURL,
+				target.ApiToken,
+				target.SpaceNames,
+				target.DisableHistorySearch,
+			); err != nil {
+				return fmt.Errorf("failed to explore Confluence DC target %s: %w", name, err)
+			}
 
-		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			return nil
+		})
 	}
 
 	for name, target := range config.Targets.JiraDC {
@@ -103,27 +128,30 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			continue
 		}
 
-		slog.Info("start exploring", "target", name)
-		start := time.Now()
+		g.Go(func() error {
+			slog.Info("start exploring", "target", name)
+			start := time.Now()
 
-		memory := newMemoryStore(ctx, queries, "jira-dc", name, runID)
-		analyse := newAnalyzeFunc(ctx, queries, &detector, "jira-dc", name, runID)
-		analyseFilename := newAnalyzeFilenameFunc(ctx, queries, &detector, "jira-dc", name, runID)
+			memory := newMemoryStore(ctx, queries, "jira-dc", name, runID)
+			analyse := newAnalyzeFunc(ctx, queries, &detector, "jira-dc", name, runID)
+			analyseFilename := newAnalyzeFilenameFunc(ctx, queries, &detector, "jira-dc", name, runID)
 
-		if err := jiradc.Explore(
-			ctx,
-			analyse,
-			analyseFilename,
-			memory,
-			name,
-			target.BaseURL,
-			target.ApiToken,
-			target.ProjectKeys,
-		); err != nil {
-			return fmt.Errorf("failed to explore Jira DC target %s: %w", name, err)
-		}
+			if err := jiradc.Explore(
+				ctx,
+				analyse,
+				analyseFilename,
+				memory,
+				name,
+				target.BaseURL,
+				target.ApiToken,
+				target.ProjectKeys,
+			); err != nil {
+				return fmt.Errorf("failed to explore Jira DC target %s: %w", name, err)
+			}
 
-		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			return nil
+		})
 	}
 
 	for name, target := range config.Targets.SMB {
@@ -131,33 +159,36 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			continue
 		}
 
-		slog.Info("start exploring", "target", name)
-		start := time.Now()
+		g.Go(func() error {
+			slog.Info("start exploring", "target", name)
+			start := time.Now()
 
-		memory := newMemoryStore(ctx, queries, "smb", name, runID)
-		analyse := newAnalyzeFunc(ctx, queries, &detector, "smb", name, runID)
-		analyseFilename := newAnalyzeFilenameFunc(ctx, queries, &detector, "smb", name, runID)
+			memory := newMemoryStore(ctx, queries, "smb", name, runID)
+			analyse := newAnalyzeFunc(ctx, queries, &detector, "smb", name, runID)
+			analyseFilename := newAnalyzeFilenameFunc(ctx, queries, &detector, "smb", name, runID)
 
-		if err := smb.Explore(
-			ctx,
-			analyse,
-			analyseFilename,
-			memory,
-			name,
-			target.Hostname,
-			target.Port,
-			target.NTLMUser,
-			target.NTLMPassword,
-			target.Domain,
-			target.MaxRecursiveDepth,
-		); err != nil {
-			return fmt.Errorf("failed to explore SMB target %s: %w", name, err)
-		}
+			if err := smb.Explore(
+				ctx,
+				analyse,
+				analyseFilename,
+				memory,
+				name,
+				target.Hostname,
+				target.Port,
+				target.NTLMUser,
+				target.NTLMPassword,
+				target.Domain,
+				target.MaxRecursiveDepth,
+			); err != nil {
+				return fmt.Errorf("failed to explore SMB target %s: %w", name, err)
+			}
 
-		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+			return nil
+		})
 	}
 
-	return nil
+	return g.Wait()
 }
 
 func newMemoryStore(ctx context.Context, q *db.Queries, targetType, targetName string, runID int64) detect.MemoryStore {

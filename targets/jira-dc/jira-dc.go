@@ -35,7 +35,7 @@ func NewAPIClient(baseURL, apiToken string) (*APIClient, error) {
 		BaseURL:  strings.TrimSuffix(baseURL, "/"),
 		ApiToken: apiToken,
 		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 	}, nil
 }
