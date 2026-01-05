@@ -11,6 +11,7 @@ import (
 	bitbucketdc "idx/targets/bitbucket-dc"
 	confluencedc "idx/targets/confluence-dc"
 	jiradc "idx/targets/jira-dc"
+	"idx/targets/smb"
 	"log"
 	"log/slog"
 	"os"
@@ -214,6 +215,12 @@ func configListTargetsCmd() *ff.Command {
 			for name := range config.Targets.ConfluenceDC {
 				fmt.Printf("- Confluence Data Center: %s\n", name)
 			}
+			for name := range config.Targets.JiraDC {
+				fmt.Printf("- Jira Data Center: %s\n", name)
+			}
+			for name := range config.Targets.SMB {
+				fmt.Printf("- SMB: %s\n", name)
+			}
 
 			return nil
 		},
@@ -373,7 +380,6 @@ func verifyTargets(ctx context.Context, config *idx.Config) {
 		}
 	}
 
-	// Verify Bitbucket Data Center targets
 	for name, target := range config.Targets.BitbucketDC {
 		client, err := bitbucketdc.NewAPIClient(target.BaseURL, target.Username, target.ApiToken)
 		if err != nil {
@@ -406,7 +412,6 @@ func verifyTargets(ctx context.Context, config *idx.Config) {
 		}
 	}
 
-	// Verify Confluence Data Center targets
 	for name, target := range config.Targets.ConfluenceDC {
 		client, err := confluencedc.NewAPIClient(target.BaseURL, target.ApiToken)
 		if err != nil {
@@ -435,7 +440,6 @@ func verifyTargets(ctx context.Context, config *idx.Config) {
 		}
 	}
 
-	// Verify Jira Data Center targets
 	for name, target := range config.Targets.JiraDC {
 		client, err := jiradc.NewAPIClient(target.BaseURL, target.ApiToken)
 		if err != nil {
@@ -462,6 +466,35 @@ func verifyTargets(ctx context.Context, config *idx.Config) {
 				len(target.ApiToken),
 			)
 		}
+	}
+
+	for name, target := range config.Targets.SMB {
+		client, err := smb.NewClient(target.Hostname, target.Port, target.NTLMUser, target.NTLMPassword, target.Domain)
+		if err != nil {
+			slog.Error("failed to create SMB client", "target", name, "error", err)
+			continue
+		}
+
+		if err := client.VerifyConnection(ctx); err != nil {
+			slog.Error(
+				"SMB target verification failed",
+				"target",
+				name,
+				"hostname",
+				target.Hostname,
+				"error",
+				err,
+			)
+		} else {
+			slog.Info(
+				"SMB target verification succeeded",
+				"target",
+				name,
+				"hostname",
+				target.Hostname,
+			)
+		}
+		client.Close()
 	}
 }
 

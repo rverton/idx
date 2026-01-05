@@ -88,3 +88,25 @@ Attachments are analyzed for:
 - Filename patterns (all attachments)
 - Text content (text/* mime types, limited to 1MB)
 - Archived filenames (ZIP, TAR, TAR.GZ - filenames extracted and analyzed)
+
+## smb
+
+Analyzes files from SMB/CIFS fileshares using NTLM authentication.
+
+### File
+
+| Field | Format |
+|-------|--------|
+| Content Key | `{share}:{filePath}` |
+| Memory Key | `smb/{targetName}/{hostname}/{share}/{filePath}/{modifiedAt}` |
+
+**Example:**
+- Content Key: `Documents:reports/2024/annual.txt`
+- Memory Key: `smb/prod/fileserver.local/Documents/reports/2024/annual.txt/1704067200`
+
+Files are analyzed for:
+- Filename patterns (all files)
+- Text content (common text extensions like .txt, .json, .xml, .yml, .conf, .env, etc., limited to 1MB)
+- Archived filenames (ZIP, TAR, TAR.GZ - filenames extracted and analyzed)
+
+Note: IPC$ is automatically excluded as it's used for RPC communication, not file access.

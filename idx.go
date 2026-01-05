@@ -10,6 +10,7 @@ import (
 	bitbucketdc "idx/targets/bitbucket-dc"
 	confluencedc "idx/targets/confluence-dc"
 	jiradc "idx/targets/jira-dc"
+	"idx/targets/smb"
 	"log/slog"
 	"strings"
 	"time"
@@ -26,10 +27,7 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 		slog.Info("start exploring", "target", name)
 		start := time.Now()
 
-		// memory store is repsonsible for deduplication of content across multiple runs
 		memory := newMemoryStore(ctx, queries, "bitbucket-cloud", name, runID)
-
-		// analyze function processes content blobs and runs detection on them
 		analyse := newAnalyzeFunc(ctx, queries, &detector, "bitbucket-cloud", name, runID)
 
 		if err := bitbucketcloud.Explore(
@@ -123,6 +121,37 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			target.ProjectKeys,
 		); err != nil {
 			return fmt.Errorf("failed to explore Jira DC target %s: %w", name, err)
+		}
+
+		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+	}
+
+	for name, target := range config.Targets.SMB {
+		if target.Disabled {
+			continue
+		}
+
+		slog.Info("start exploring", "target", name)
+		start := time.Now()
+
+		memory := newMemoryStore(ctx, queries, "smb", name, runID)
+		analyse := newAnalyzeFunc(ctx, queries, &detector, "smb", name, runID)
+		analyseFilename := newAnalyzeFilenameFunc(ctx, queries, &detector, "smb", name, runID)
+
+		if err := smb.Explore(
+			ctx,
+			analyse,
+			analyseFilename,
+			memory,
+			name,
+			target.Hostname,
+			target.Port,
+			target.NTLMUser,
+			target.NTLMPassword,
+			target.Domain,
+			target.MaxRecursiveDepth,
+		); err != nil {
+			return fmt.Errorf("failed to explore SMB target %s: %w", name, err)
 		}
 
 		slog.Info("finished exploring", "target", name, "duration", time.Since(start))

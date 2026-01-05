@@ -26,10 +26,9 @@ sources for secrets and sensitive information.
     - Issues
     - Comments
     - Attachments (content, filenames and archive filenames)
-
-Roadmap:
-
 - SMB file shares
+    - Share enumeration
+    - Recursive share file scan (filename and 5MB file content limit)
 
 ## Usage
 
@@ -107,3 +106,9 @@ memory.Set(key)
 ```
 
 Both callbacks are created by the core `Explore` function and passed to each target, keeping targets stateless and testable.
+
+### Integration testing
+
+- For the supported Atlassian targets a 30d trial license can be generated from their website.
+- Use `make testhelper/smb` to start a local SMB server with test data for development and testing.
+

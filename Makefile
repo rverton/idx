@@ -3,11 +3,9 @@ bin = idx
 test:
 	go test -v ./...
 
-test/ldapserver:
-	docker run --rm -p 10389:10389 -p 10636:10636 ghcr.io/rroemhild/docker-test-openldap:master
 
-install:
-	go install -tags 'sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+test/integration:
+	go test -v -tags=integration ./...
 
 release:
 	goreleaser release --clean
@@ -27,3 +25,17 @@ db/generate:
 
 db/reset:
 	rm idx.db idx.db-shm idx.db-wal || true
+
+testhelper/smb:
+	$(eval SMB_TEST_DIR := $(shell mktemp -d))
+	@echo 'psql_uri = "postgresql+psycopg2://foox:bary@a-db:5432/mydatabase"' > $(SMB_TEST_DIR)/foo.py
+	@echo '1' > $(SMB_TEST_DIR)/id_rsa
+	@cd $(SMB_TEST_DIR) && zip secrets.zip id_rsa
+	@cd $(SMB_TEST_DIR) && rm id_rsa
+	docker run --rm \
+		--name idx-smb-test \
+		-p 445:445 \
+		-v $(SMB_TEST_DIR):/share \
+		dperson/samba \
+		-u "testuser;testpass123" \
+		-s "testshare;/share;yes;no;no;testuser"

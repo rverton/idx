@@ -1,15 +1,15 @@
 package idx
 
-import (
-	"encoding/json"
-)
-
+// Config represents the overall configuration for indexing targets
+// I would prefer a single array for targets here, but this way we have typed target
+// setting per target type.
 type Config struct {
 	Targets struct {
 		BitbucketCloud map[string]TargetBitbucketConfig  `json:"bitbucket-cloud"`
 		BitbucketDC    map[string]TargetBitbucketConfig  `json:"bitbucket-dc"`
 		ConfluenceDC   map[string]TargetConfluenceConfig `json:"confluence-dc"`
 		JiraDC         map[string]TargetJiraConfig       `json:"jira-dc"`
+		SMB            map[string]TargetSMBConfig        `json:"smb"`
 	} `json:"targets"`
 }
 
@@ -18,21 +18,10 @@ type TargetConfluenceConfig struct {
 	BaseURL              string   `json:"baseURL"`
 	SpaceNames           []string `json:"spaceNames"`
 	DisableHistorySearch bool     `json:"disableHistorySearch"`
-	Disabled             bool     `json:"disabled"`
+
+	Disabled bool `json:"disabled"`
 }
 
-func (t TargetConfluenceConfig) MarshalJSON() ([]byte, error) {
-	type Alias TargetConfluenceConfig
-	return json.Marshal(&struct {
-		*Alias
-		ApiToken string `json:"apiToken"`
-	}{
-		Alias:    (*Alias)(&t),
-		ApiToken: "REDACTED",
-	})
-}
-
-// TargetBitbucketConfig defines the configuration for a Bitbucket target.
 type TargetBitbucketConfig struct {
 	Username string `json:"username"`
 	ApiToken string `json:"apiToken"`
@@ -43,32 +32,21 @@ type TargetBitbucketConfig struct {
 	Disabled bool `json:"disabled"`
 }
 
-// MarshalJSON customizes the JSON marshaling to redact the ApiToken field.
-func (t TargetBitbucketConfig) MarshalJSON() ([]byte, error) {
-	type Alias TargetBitbucketConfig
-	return json.Marshal(&struct {
-		*Alias
-		ApiToken string `json:"apiToken"`
-	}{
-		Alias:    (*Alias)(&t),
-		ApiToken: "REDACTED",
-	})
-}
-
 type TargetJiraConfig struct {
 	ApiToken    string   `json:"apiToken"`
 	BaseURL     string   `json:"baseURL"`
-	ProjectKeys []string `json:"projectKeys"`
-	Disabled    bool     `json:"disabled"`
+	ProjectKeys []string `json:"projectKeys"` // important: keys != project names
+
+	Disabled bool `json:"disabled"`
 }
 
-func (t TargetJiraConfig) MarshalJSON() ([]byte, error) {
-	type Alias TargetJiraConfig
-	return json.Marshal(&struct {
-		*Alias
-		ApiToken string `json:"apiToken"`
-	}{
-		Alias:    (*Alias)(&t),
-		ApiToken: "REDACTED",
-	})
+type TargetSMBConfig struct {
+	Hostname          string `json:"hostname"`
+	Port              int    `json:"port"`
+	NTLMUser          string `json:"ntlmUser"`
+	NTLMPassword      string `json:"ntlmPassword"`
+	Domain            string `json:"domain"`
+	MaxRecursiveDepth int    `json:"maxRecursiveDepth"` // 0=root folder
+
+	Disabled bool `json:"disabled"`
 }

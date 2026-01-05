@@ -29,6 +29,16 @@ const tplConfig = `{
                 "baseURL": "https://your.jira.server.com",
                 "projectKeys": ["PROJ1", "PROJ2"]
             }
+        },
+        "smb": {
+            "example-smb-target": {
+                "hostname": "your-file-server.local",
+                "port": 445,
+                "ntlmUser": "your-username",
+                "ntlmPassword": "your-password",
+                "domain": "YOURDOMAIN",
+                "maxRecursiveDepth": 3
+            }
         }
     }
 } `
