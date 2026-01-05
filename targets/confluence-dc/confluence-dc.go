@@ -84,7 +84,7 @@ func (c *APIClient) VerifyConnection(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 
-	slog.Info("Confluence Data Center authenticated connection verified successfully.", "baseURL", c.BaseURL)
+	slog.Debug("Confluence Data Center authenticated connection verified successfully.", "baseURL", c.BaseURL)
 
 	return nil
 }

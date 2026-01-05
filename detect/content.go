@@ -27,8 +27,16 @@ type Rule struct {
 	RegexVerifier []string // regex patterns for verification
 }
 
+type FilenameRule struct {
+	Name        string
+	Description string
+	Pattern     *regexp.Regexp
+	Verifier    []string // example filenames for verification
+}
+
 type Detector struct {
-	Rules []Rule
+	Rules         []Rule
+	FilenameRules []FilenameRule
 }
 
 var DefaultDetector = Detector{
@@ -315,6 +323,56 @@ var DefaultDetector = Detector{
 			},
 		},
 	},
+	FilenameRules: []FilenameRule{
+		{
+			Name:        "Environment File",
+			Description: "Detects environment configuration files that may contain secrets",
+			Pattern:     regexp.MustCompile(`(?i)^\.env($|\..*)`),
+			Verifier:    []string{".env", ".env.local", ".env.production", ".env.development"},
+		},
+		{
+			Name:        "Private Key File",
+			Description: "Detects private key and certificate files",
+			Pattern:     regexp.MustCompile(`(?i)\.(key|pem|p12|pfx)$`),
+			Verifier:    []string{"server.key", "certificate.pem", "keystore.p12", "cert.pfx"},
+		},
+		{
+			Name:        "Configuration File",
+			Description: "Detects configuration files that may contain credentials",
+			Pattern:     regexp.MustCompile(`(?i)\.(properties|config|cfg|ini|conf)$`),
+			Verifier:    []string{"application.properties", "database.config", "app.cfg", "settings.ini", "nginx.conf"},
+		},
+		{
+			Name:        "Database Dump File",
+			Description: "Detects SQL and database dump files",
+			Pattern:     regexp.MustCompile(`(?i)\.(sql|dump|bak|backup)$`),
+			Verifier:    []string{"database.sql", "backup.dump", "data.bak", "db.backup"},
+		},
+		{
+			Name:        "Disk Image File",
+			Description: "Detects virtual disk and system image files",
+			Pattern:     regexp.MustCompile(`(?i)\.(iso|vhd|vhdx|vmdk|qcow2?|img)$`),
+			Verifier:    []string{"system.iso", "disk.vhd", "server.vmdk", "backup.qcow2", "drive.img"},
+		},
+		{
+			Name:        "Credentials File",
+			Description: "Detects common credential storage files",
+			Pattern:     regexp.MustCompile(`(?i)(credentials|secrets?|passwords?|\.htpasswd|\.pgpass|\.netrc|\.npmrc|\.pypirc)$`),
+			Verifier:    []string{"credentials", "secrets", "passwords", ".htpasswd", ".pgpass", ".netrc"},
+		},
+		{
+			Name:        "SSH Key File",
+			Description: "Detects SSH private key files",
+			Pattern:     regexp.MustCompile(`(?i)(^id_(rsa|dsa|ecdsa|ed25519)$|\.ppk$)`),
+			Verifier:    []string{"id_rsa", "id_ed25519", "key.ppk"},
+		},
+		{
+			Name:        "Kubernetes Secrets",
+			Description: "Detects Kubernetes secret and config files",
+			Pattern:     regexp.MustCompile(`(?i)(kubeconfig|\.kube/config|secret.*\.ya?ml)$`),
+			Verifier:    []string{"kubeconfig", "secret.yaml", "secrets.yml"},
+		},
+	},
 }
 
 func (d *Detector) Detect(content Content) []Finding {
@@ -327,6 +385,26 @@ func (d *Detector) Detect(content Content) []Finding {
 				ContentKey: content.Key,
 				Location:   content.Location,
 				Match:      string(match),
+			}
+			findings = append(findings, finding)
+		}
+	}
+	return findings
+}
+
+func (d *Detector) DetectFilename(filename, contentKey string, location []string) []Finding {
+	var findings []Finding
+	for _, rule := range d.FilenameRules {
+		if rule.Pattern.MatchString(filename) {
+			finding := Finding{
+				Rule: Rule{
+					Name:        rule.Name,
+					Description: rule.Description,
+					Regex:       rule.Pattern,
+				},
+				ContentKey: contentKey,
+				Location:   location,
+				Match:      filename,
 			}
 			findings = append(findings, finding)
 		}

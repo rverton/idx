@@ -10,6 +10,7 @@ import (
 	bitbucketcloud "idx/targets/bitbucket-cloud"
 	bitbucketdc "idx/targets/bitbucket-dc"
 	confluencedc "idx/targets/confluence-dc"
+	jiradc "idx/targets/jira-dc"
 	"log"
 	"log/slog"
 	"os"
@@ -426,6 +427,35 @@ func verifyTargets(ctx context.Context, config *idx.Config) {
 		} else {
 			slog.Info(
 				"Confluence DC target verification succeeded",
+				"target",
+				name,
+				"len(apiToken)",
+				len(target.ApiToken),
+			)
+		}
+	}
+
+	// Verify Jira Data Center targets
+	for name, target := range config.Targets.JiraDC {
+		client, err := jiradc.NewAPIClient(target.BaseURL, target.ApiToken)
+		if err != nil {
+			slog.Error("failed to create Jira DC client", "target", name, "error", err)
+			continue
+		}
+
+		if err := client.VerifyConnection(ctx); err != nil {
+			slog.Error(
+				"Jira DC target verification failed",
+				"target",
+				name,
+				"len(apiToken)",
+				len(target.ApiToken),
+				"error",
+				err,
+			)
+		} else {
+			slog.Info(
+				"Jira DC target verification succeeded",
 				"target",
 				name,
 				"len(apiToken)",

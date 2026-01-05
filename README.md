@@ -17,8 +17,19 @@ sources for secrets and sensitive information.
 ### Supported Targets
 
 - Bitbucket Cloud
+    - Repositories
 - Bitbucket Data Center
+    - Repositories
 - Confluence Data Center
+    - Pages and all versions
+- Jira Data Center
+    - Issues
+    - Comments
+    - Attachments (content, filenames and archive filenames)
+
+Roadmap:
+
+- SMB file shares
 
 ## Usage
 

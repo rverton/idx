@@ -9,6 +9,7 @@ import (
 	bitbucketcloud "idx/targets/bitbucket-cloud"
 	bitbucketdc "idx/targets/bitbucket-dc"
 	confluencedc "idx/targets/confluence-dc"
+	jiradc "idx/targets/jira-dc"
 	"log/slog"
 	"strings"
 	"time"
@@ -99,6 +100,34 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
 	}
 
+	for name, target := range config.Targets.JiraDC {
+		if target.Disabled {
+			continue
+		}
+
+		slog.Info("start exploring", "target", name)
+		start := time.Now()
+
+		memory := newMemoryStore(ctx, queries, "jira-dc", name, runID)
+		analyse := newAnalyzeFunc(ctx, queries, &detector, "jira-dc", name, runID)
+		analyseFilename := newAnalyzeFilenameFunc(ctx, queries, &detector, "jira-dc", name, runID)
+
+		if err := jiradc.Explore(
+			ctx,
+			analyse,
+			analyseFilename,
+			memory,
+			name,
+			target.BaseURL,
+			target.ApiToken,
+			target.ProjectKeys,
+		); err != nil {
+			return fmt.Errorf("failed to explore Jira DC target %s: %w", name, err)
+		}
+
+		slog.Info("finished exploring", "target", name, "duration", time.Since(start))
+	}
+
 	return nil
 }
 
@@ -149,6 +178,34 @@ func newAnalyzeFunc(ctx context.Context, q *db.Queries, detector *detect.Detecto
 				Match:           finding.Match,
 			}); err != nil {
 				slog.Error("failed to insert finding", "error", err)
+			}
+		}
+	}
+}
+
+func newAnalyzeFilenameFunc(ctx context.Context, q *db.Queries, detector *detect.Detector, targetType, targetName string, runID int64) func(filename, contentKey string, location []string) {
+	return func(filename, contentKey string, location []string) {
+		slog.Debug("analyzing filename", "filename", filename, "location", location)
+
+		for _, finding := range detector.DetectFilename(filename, contentKey, location) {
+			slog.Info("filename finding detected",
+				"rule", finding.Rule.Name,
+				"description", finding.Rule.Description,
+				"content_key", finding.ContentKey,
+				"location", finding.Location,
+			)
+
+			if err := q.InsertFinding(ctx, db.InsertFindingParams{
+				RunID:           runID,
+				TargetType:      targetType,
+				TargetName:      targetName,
+				RuleName:        finding.Rule.Name,
+				RuleDescription: finding.Rule.Description,
+				ContentKey:      finding.ContentKey,
+				Location:        strings.Join(finding.Location, "/"),
+				Match:           finding.Match,
+			}); err != nil {
+				slog.Error("failed to insert filename finding", "error", err)
 			}
 		}
 	}

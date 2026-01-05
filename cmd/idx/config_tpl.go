@@ -22,6 +22,13 @@ const tplConfig = `{
                 "spaceNames": ["My Space", "Another Space"],
 				"disableHistorySearch": false
             }
+        },
+        "jira-dc": {
+            "example-jira-target": {
+                "apiToken": "your-personal-access-token",
+                "baseURL": "https://your.jira.server.com",
+                "projectKeys": ["PROJ1", "PROJ2"]
+            }
         }
     }
 } `

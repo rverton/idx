@@ -2,6 +2,7 @@ package detect
 
 import (
 	"regexp"
+	"slices"
 	"testing"
 )
 
@@ -166,5 +167,110 @@ func TestDefaultDetector_RulesMatchVerifiers(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDefaultDetector_FilenameRulesMatchVerifiers(t *testing.T) {
+	for _, rule := range DefaultDetector.FilenameRules {
+		t.Run(rule.Name, func(t *testing.T) {
+			if rule.Pattern == nil {
+				t.Fatalf("rule %q has nil Pattern", rule.Name)
+			}
+
+			if len(rule.Verifier) == 0 {
+				t.Errorf("rule %q has no verifiers", rule.Name)
+				return
+			}
+
+			for i, verifier := range rule.Verifier {
+				if !rule.Pattern.MatchString(verifier) {
+					t.Errorf("pattern does not match verifier[%d]: %q", i, verifier)
+				}
+			}
+		})
+	}
+}
+
+func TestDetector_DetectFilename(t *testing.T) {
+	tests := []struct {
+		name       string
+		filename   string
+		wantMatch  bool
+		wantRuleIn []string
+	}{
+		{
+			name:       "env file",
+			filename:   ".env",
+			wantMatch:  true,
+			wantRuleIn: []string{"Environment File"},
+		},
+		{
+			name:       "env.local file",
+			filename:   ".env.local",
+			wantMatch:  true,
+			wantRuleIn: []string{"Environment File"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := DefaultDetector.DetectFilename(tt.filename, "test-key", []string{"test", "location"})
+
+			if tt.wantMatch && len(findings) == 0 {
+				t.Errorf("expected match for filename %q, got none", tt.filename)
+				return
+			}
+
+			if !tt.wantMatch && len(findings) > 0 {
+				t.Errorf("expected no match for filename %q, got %d findings", tt.filename, len(findings))
+				return
+			}
+
+			if tt.wantMatch {
+				found := false
+				for _, f := range findings {
+					if slices.Contains(tt.wantRuleIn, f.Rule.Name) {
+						found = true
+					}
+				}
+				if !found {
+					var gotRules []string
+					for _, f := range findings {
+						gotRules = append(gotRules, f.Rule.Name)
+					}
+					t.Errorf("expected rule in %v, got %v", tt.wantRuleIn, gotRules)
+				}
+			}
+		})
+	}
+}
+
+func TestDetector_DetectFilename_FindingFields(t *testing.T) {
+	filename := ".env.production"
+	contentKey := "test-content-key"
+	location := []string{"jira-dc", "PROJ", "PROJ-123", "attachment"}
+
+	findings := DefaultDetector.DetectFilename(filename, contentKey, location)
+
+	if len(findings) == 0 {
+		t.Fatal("expected at least 1 finding")
+	}
+
+	finding := findings[0]
+
+	if finding.ContentKey != contentKey {
+		t.Errorf("ContentKey = %q, want %q", finding.ContentKey, contentKey)
+	}
+
+	if len(finding.Location) != len(location) {
+		t.Errorf("Location length = %d, want %d", len(finding.Location), len(location))
+	}
+
+	if finding.Match != filename {
+		t.Errorf("Match = %q, want %q", finding.Match, filename)
+	}
+
+	if finding.Rule.Name != "Environment File" {
+		t.Errorf("Rule.Name = %q, want %q", finding.Rule.Name, "Environment File")
 	}
 }

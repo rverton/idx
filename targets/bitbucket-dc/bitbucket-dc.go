@@ -78,7 +78,7 @@ func (c *APIClient) VerifyConnection(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 
-	slog.Info("Bitbucket Data Center authenticated connection verified successfully.", "username", c.Username, "baseURL", c.BaseURL, "endpoint", endpointURL)
+	slog.Debug("Bitbucket Data Center authenticated connection verified successfully.", "username", c.Username, "baseURL", c.BaseURL, "endpoint", endpointURL)
 
 	return nil
 }
