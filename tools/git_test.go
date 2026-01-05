@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
@@ -119,8 +120,8 @@ func TestIterateCommits_EmptyRepo(t *testing.T) {
 		return nil
 	})
 
-	if err == nil {
-		t.Error("expected error for empty repo (no HEAD)")
+	if err != nil {
+		t.Errorf("expected no error for empty repo (no branches), got: %v", err)
 	}
 }
 
@@ -218,6 +219,102 @@ func TestIterateCommits_DeletedFile(t *testing.T) {
 
 	if !deletionFound {
 		t.Error("expected to find deletion change with correct FilePath")
+	}
+}
+
+func TestIterateCommits_MultipleBranches(t *testing.T) {
+	dir := t.TempDir()
+
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("failed to init repo: %v", err)
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("failed to get worktree: %v", err)
+	}
+
+	// Create initial commit on main/master
+	mainFile := filepath.Join(dir, "main.txt")
+	if err := os.WriteFile(mainFile, []byte("main content"), 0644); err != nil {
+		t.Fatalf("failed to write main file: %v", err)
+	}
+	if _, err := worktree.Add("main.txt"); err != nil {
+		t.Fatalf("failed to add main file: %v", err)
+	}
+	_, err = worktree.Commit("main commit", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to commit on main: %v", err)
+	}
+
+	// Create a new branch
+	headRef, err := repo.Head()
+	if err != nil {
+		t.Fatalf("failed to get HEAD: %v", err)
+	}
+	branchRef := plumbing.NewHashReference("refs/heads/feature", headRef.Hash())
+	if err := repo.Storer.SetReference(branchRef); err != nil {
+		t.Fatalf("failed to create branch: %v", err)
+	}
+
+	// Checkout new branch
+	if err := worktree.Checkout(&git.CheckoutOptions{Branch: branchRef.Name()}); err != nil {
+		t.Fatalf("failed to checkout branch: %v", err)
+	}
+
+	// Create commit on feature branch
+	featureFile := filepath.Join(dir, "feature.txt")
+	if err := os.WriteFile(featureFile, []byte("feature content"), 0644); err != nil {
+		t.Fatalf("failed to write feature file: %v", err)
+	}
+	if _, err := worktree.Add("feature.txt"); err != nil {
+		t.Fatalf("failed to add feature file: %v", err)
+	}
+	_, err = worktree.Commit("feature commit", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to commit on feature: %v", err)
+	}
+
+	// Iterate and collect file changes
+	var changes []FileChange
+	err = IterateCommits(dir, func(fc FileChange) error {
+		changes = append(changes, fc)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("IterateCommits failed: %v", err)
+	}
+
+	// Should have changes from both branches (main.txt appears in both branch histories)
+	mainFound := false
+	featureFound := false
+	for _, fc := range changes {
+		if fc.FilePath == "main.txt" {
+			mainFound = true
+		}
+		if fc.FilePath == "feature.txt" {
+			featureFound = true
+		}
+	}
+
+	if !mainFound {
+		t.Error("expected to find main.txt from main branch")
+	}
+	if !featureFound {
+		t.Error("expected to find feature.txt from feature branch")
 	}
 }
 

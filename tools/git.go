@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
@@ -76,72 +77,82 @@ func (fc FileChange) Additions() string {
 	return strings.Join(additions, "\n")
 }
 
-// IterateCommits opens a repository at the given path and iterates over all commits,
-// calling the callback function for each file change found. This is similar to `git log -p`.
+// IterateCommits opens a repository at the given path and iterates over all commits
+// across all branches, calling the callback function for each file change found.
+// This is similar to `git log -p --all`.
 func IterateCommits(repoPath string, callback func(FileChange) error) error {
 	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return fmt.Errorf("failed to open repository: %w", err)
 	}
 
-	head, err := repo.Head()
+	branches, err := repo.Branches()
 	if err != nil {
-		return fmt.Errorf("failed to get HEAD: %w", err)
+		return fmt.Errorf("failed to get branches: %w", err)
 	}
 
-	commitIter, err := repo.Log(&git.LogOptions{From: head.Hash()})
-	if err != nil {
-		return fmt.Errorf("failed to get commit log: %w", err)
-	}
+	seenCommits := make(map[string]bool)
 
-	err = commitIter.ForEach(func(commit *object.Commit) error {
-		var parentTree *object.Tree
-		if commit.NumParents() > 0 {
-			parent, err := commit.Parent(0)
-			if err != nil {
-				return fmt.Errorf("failed to get parent commit: %w", err)
-			}
-			parentTree, err = parent.Tree()
-			if err != nil {
-				return fmt.Errorf("failed to get parent tree: %w", err)
-			}
-		}
-
-		currentTree, err := commit.Tree()
+	err = branches.ForEach(func(ref *plumbing.Reference) error {
+		commitIter, err := repo.Log(&git.LogOptions{From: ref.Hash()})
 		if err != nil {
-			return fmt.Errorf("failed to get commit tree: %w", err)
+			return fmt.Errorf("failed to get commit log for branch %s: %w", ref.Name(), err)
 		}
 
-		changes, err := parentTree.Diff(currentTree)
-		if err != nil {
-			return fmt.Errorf("failed to get diff: %w", err)
-		}
+		return commitIter.ForEach(func(commit *object.Commit) error {
+			if seenCommits[commit.Hash.String()] {
+				return nil
+			}
+			seenCommits[commit.Hash.String()] = true
 
-		for _, change := range changes {
-			patch, err := change.Patch()
+			var parentTree *object.Tree
+			if commit.NumParents() > 0 {
+				parent, err := commit.Parent(0)
+				if err != nil {
+					return fmt.Errorf("failed to get parent commit: %w", err)
+				}
+				parentTree, err = parent.Tree()
+				if err != nil {
+					return fmt.Errorf("failed to get parent tree: %w", err)
+				}
+			}
+
+			currentTree, err := commit.Tree()
 			if err != nil {
-				continue
+				return fmt.Errorf("failed to get commit tree: %w", err)
 			}
 
-			fc := FileChange{
-				CommitHash:    commit.Hash.String(),
-				CommitMessage: commit.Message,
-				AuthorName:    commit.Author.Name,
-				AuthorEmail:   commit.Author.Email,
-				FilePath:      change.To.Name,
-				Patch:         patch.String(),
+			changes, err := parentTree.Diff(currentTree)
+			if err != nil {
+				return fmt.Errorf("failed to get diff: %w", err)
 			}
 
-			if fc.FilePath == "" {
-				fc.FilePath = change.From.Name
+			for _, change := range changes {
+				patch, err := change.Patch()
+				if err != nil {
+					continue
+				}
+
+				fc := FileChange{
+					CommitHash:    commit.Hash.String(),
+					CommitMessage: commit.Message,
+					AuthorName:    commit.Author.Name,
+					AuthorEmail:   commit.Author.Email,
+					FilePath:      change.To.Name,
+					Patch:         patch.String(),
+				}
+
+				if fc.FilePath == "" {
+					fc.FilePath = change.From.Name
+				}
+
+				if err := callback(fc); err != nil {
+					return err
+				}
 			}
 
-			if err := callback(fc); err != nil {
-				return err
-			}
-		}
-
-		return nil
+			return nil
+		})
 	})
 
 	return err
