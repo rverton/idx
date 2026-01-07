@@ -19,3 +19,6 @@ values (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListFindings :many
 select * from findings order by detected_at desc;
+
+-- name: GetMemoryAnalyzedAt :one
+select analyzed_at from memories where key = ?;

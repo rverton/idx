@@ -129,3 +129,71 @@ func TestFiletimeToUnix(t *testing.T) {
 		})
 	}
 }
+
+func TestPathDepth(t *testing.T) {
+	tests := []struct {
+		path string
+		want int
+	}{
+		{"", 0},
+		{"/", 0},
+		{"\\", 0},
+		{"file.txt", 1},
+		{"dir/file.txt", 2},
+		{"dir\\file.txt", 2},
+		{"a/b/c", 3},
+		{"a\\b\\c", 3},
+		{"a/b\\c/d", 4},
+		{"/a/b/c/", 3},
+		{"level1/level2/level3/level4/file.txt", 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := pathDepth(tt.path)
+			if got != tt.want {
+				t.Errorf("pathDepth(%q) = %d, want %d", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFolderCacheKeyFormat(t *testing.T) {
+	targetName := "test-target"
+	hostname := "server.local"
+	share := "Documents"
+	folderPath := "reports/2024"
+
+	expectedKey := "smb/test-target/server.local/Documents/folder:reports/2024"
+	actualKey := "smb/" + targetName + "/" + hostname + "/" + share + "/folder:" + folderPath
+
+	if actualKey != expectedKey {
+		t.Errorf("folder key format mismatch: got %q, want %q", actualKey, expectedKey)
+	}
+}
+
+func TestFolderCacheDepthLogic(t *testing.T) {
+	tests := []struct {
+		name             string
+		fileDepth        int
+		folderCacheDepth int
+		wantFolderCache  bool
+	}{
+		{"depth 0, threshold 2", 0, 2, false},
+		{"depth 1, threshold 2", 1, 2, false},
+		{"depth 2, threshold 2", 2, 2, true},
+		{"depth 3, threshold 2", 3, 2, true},
+		{"depth 5, threshold 3", 5, 3, true},
+		{"threshold 0 disables", 5, 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			useFolderCache := tt.folderCacheDepth > 0 && tt.fileDepth >= tt.folderCacheDepth
+			if useFolderCache != tt.wantFolderCache {
+				t.Errorf("folderCacheDepth=%d, fileDepth=%d: useFolderCache=%v, want %v",
+					tt.folderCacheDepth, tt.fileDepth, useFolderCache, tt.wantFolderCache)
+			}
+		})
+	}
+}

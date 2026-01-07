@@ -37,7 +37,9 @@ const tplConfig = `{
                 "ntlmUser": "your-username",
                 "ntlmPassword": "your-password",
                 "domain": "YOURDOMAIN",
-                "maxRecursiveDepth": 3
+                "maxRecursiveDepth": 3,
+                "folderCacheDepth": 2,
+                "folderRescanDuration": "72h"
             }
         }
     }

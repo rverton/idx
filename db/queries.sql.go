@@ -10,6 +10,17 @@ import (
 	"database/sql"
 )
 
+const getMemoryAnalyzedAt = `-- name: GetMemoryAnalyzedAt :one
+select analyzed_at from memories where key = ?
+`
+
+func (q *Queries) GetMemoryAnalyzedAt(ctx context.Context, key string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getMemoryAnalyzedAt, key)
+	var analyzed_at int64
+	err := row.Scan(&analyzed_at)
+	return analyzed_at, err
+}
+
 const hasMemoryKey = `-- name: HasMemoryKey :one
 select exists(select 1 from memories where key = ?) as has_key
 `

@@ -168,6 +168,24 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 			analyse := newAnalyzeFunc(ctx, queries, &detector, "smb", name, runID)
 			analyseFilename := newAnalyzeFilenameFunc(ctx, queries, &detector, "smb", name, runID)
 
+			folderCacheDepth := target.FolderCacheDepth
+			if folderCacheDepth == 0 {
+				folderCacheDepth = 2
+			}
+
+			rescanDuration := 72 * time.Hour
+			if target.FolderRescanDuration != "" {
+				parsed, err := time.ParseDuration(target.FolderRescanDuration)
+				if err != nil {
+					slog.Warn("invalid folderRescanDuration, using default",
+						"target", name,
+						"value", target.FolderRescanDuration,
+						"default", "72h")
+				} else {
+					rescanDuration = parsed
+				}
+			}
+
 			if err := smb.Explore(
 				ctx,
 				analyse,
@@ -180,6 +198,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.NTLMPassword,
 				target.Domain,
 				target.MaxRecursiveDepth,
+				folderCacheDepth,
+				rescanDuration,
 			); err != nil {
 				return fmt.Errorf("failed to explore SMB target %s: %w", name, err)
 			}
@@ -212,6 +232,17 @@ func newMemoryStore(ctx context.Context, q *db.Queries, targetType, targetName s
 			if err != nil {
 				slog.Error("memory store: failed to set key", "key", key, "error", err)
 			}
+		},
+		GetTimestamp: func(key string) (int64, bool) {
+			ts, err := q.GetMemoryAnalyzedAt(ctx, key)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return 0, false
+				}
+				slog.Error("memory store: failed to get timestamp", "key", key, "error", err)
+				return 0, false
+			}
+			return ts, true
 		},
 	}
 }

@@ -9,8 +9,9 @@ type Content struct {
 }
 
 type MemoryStore struct {
-	Has func(key string) bool
-	Set func(key string)
+	Has          func(key string) bool
+	Set          func(key string)
+	GetTimestamp func(key string) (int64, bool) // returns (analyzed_at, exists)
 }
 
 type Finding struct {

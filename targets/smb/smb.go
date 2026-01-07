@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"slices"
 
@@ -124,34 +125,6 @@ func (c *Client) EnumerateShares() ([]string, error) {
 	return shares, nil
 }
 
-func (c *Client) listFiles(share, dir string, currentDepth, maxDepth int) ([]smb.SharedFile, error) {
-	var allFiles []smb.SharedFile
-
-	files, err := c.session.ListDirectory(share, dir, "*")
-	if err != nil {
-		return nil, err
-	}
-
-	for _, file := range files {
-		if file.Name == "." || file.Name == ".." {
-			continue
-		}
-
-		allFiles = append(allFiles, file)
-
-		if file.IsDir && !file.IsJunction && currentDepth < maxDepth {
-			subFiles, err := c.listFiles(share, file.FullPath, currentDepth+1, maxDepth)
-			if err != nil {
-				slog.Debug("failed to list subdirectory", "share", share, "path", file.FullPath, "error", err)
-				continue
-			}
-			allFiles = append(allFiles, subFiles...)
-		}
-	}
-
-	return allFiles, nil
-}
-
 func (c *Client) readFile(share, path string) ([]byte, error) {
 	var buf bytes.Buffer
 	limitedWriter := &limitedWriter{w: &buf, remaining: maxFileSize}
@@ -210,6 +183,84 @@ func filetimeToUnix(ft uint64) int64 {
 	return int64((ft - epochDiff) / 10000000)
 }
 
+func pathDepth(path string) int {
+	if path == "" {
+		return 0
+	}
+
+	normalized := normalizePath(path)
+	normalized = strings.Trim(normalized, "/")
+
+	if normalized == "" {
+		return 0
+	}
+
+	return strings.Count(normalized, "/") + 1
+}
+
+type walkOpts struct {
+	share                string
+	dir                  string
+	currentDepth         int
+	maxDepth             int
+	folderCacheDepth     int
+	folderRescanDuration time.Duration
+	memory               detect.MemoryStore
+	targetName           string
+	hostname             string
+}
+
+func normalizePath(path string) string {
+	return strings.ReplaceAll(path, "\\", "/")
+}
+
+func (c *Client) walkFiles(opts walkOpts, fn func(file smb.SharedFile, depth int)) error {
+	normalizedDir := normalizePath(opts.dir)
+
+	if opts.folderCacheDepth > 0 && opts.currentDepth >= opts.folderCacheDepth {
+		folderKey := fmt.Sprintf("smb/%s/%s/%s/folder:%s", opts.targetName, opts.hostname, opts.share, normalizedDir)
+
+		if ts, exists := opts.memory.GetTimestamp(folderKey); exists {
+			age := time.Since(time.Unix(ts, 0))
+			if age < opts.folderRescanDuration {
+				slog.Debug("skipping cached folder", "path", normalizedDir, "age", age, "threshold", opts.folderRescanDuration)
+				return nil
+			}
+		}
+	}
+
+	files, err := c.session.ListDirectory(opts.share, opts.dir, "*")
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		if file.Name == "." || file.Name == ".." {
+			continue
+		}
+
+		fn(file, opts.currentDepth)
+
+		if file.IsDir && !file.IsJunction && opts.currentDepth < opts.maxDepth {
+			subOpts := opts
+			subOpts.dir = file.FullPath
+			subOpts.currentDepth = opts.currentDepth + 1
+
+			if err := c.walkFiles(subOpts, fn); err != nil {
+				slog.Debug("failed to list subdirectory", "share", opts.share, "path", file.FullPath, "error", err)
+				continue
+			}
+		}
+	}
+
+	if opts.folderCacheDepth > 0 && opts.currentDepth >= opts.folderCacheDepth {
+		folderKey := fmt.Sprintf("smb/%s/%s/%s/folder:%s", opts.targetName, opts.hostname, opts.share, normalizedDir)
+		opts.memory.Set(folderKey)
+	}
+
+	return nil
+}
+
 func Explore(
 	ctx context.Context,
 	analyze func(content detect.Content),
@@ -220,6 +271,8 @@ func Explore(
 	port int,
 	user, password, domain string,
 	maxRecursiveDepth int,
+	folderCacheDepth int,
+	folderRescanDuration time.Duration,
 ) error {
 	client, err := NewClient(hostname, port, user, password, domain)
 	if err != nil {
@@ -241,25 +294,36 @@ func Explore(
 			continue
 		}
 
-		files, err := client.listFiles(share, "", 0, maxRecursiveDepth)
-		if err != nil {
-			slog.Error("smb: failed to list files", "share", share, "error", err)
-			client.session.TreeDisconnect(share)
-			continue
+		opts := walkOpts{
+			share:                share,
+			dir:                  "",
+			currentDepth:         0,
+			maxDepth:             maxRecursiveDepth,
+			folderCacheDepth:     folderCacheDepth,
+			folderRescanDuration: folderRescanDuration,
+			memory:               memory,
+			targetName:           name,
+			hostname:             hostname,
 		}
 
-		slog.Info("smb files listed", "target", name, "share", share, "count", len(files))
+		var fileCount int
 
-		for _, file := range files {
+		err = client.walkFiles(opts, func(file smb.SharedFile, depth int) {
 			if file.IsDir {
-				continue
+				return
 			}
 
-			modifiedAt := filetimeToUnix(file.LastWriteTime)
-			memoryKey := fmt.Sprintf("smb/%s/%s/%s/%s/%d", name, hostname, share, file.FullPath, modifiedAt)
+			fileCount++
 
-			if memory.Has(memoryKey) {
-				continue
+			useFolderCache := folderCacheDepth > 0 && depth >= folderCacheDepth
+
+			if !useFolderCache {
+				modifiedAt := filetimeToUnix(file.LastWriteTime)
+				memoryKey := fmt.Sprintf("smb/%s/%s/%s/%s/%d", name, hostname, share, normalizePath(file.FullPath), modifiedAt)
+
+				if memory.Has(memoryKey) {
+					return
+				}
 			}
 
 			location := []string{
@@ -270,10 +334,8 @@ func Explore(
 			}
 			contentKey := fmt.Sprintf("%s:%s", share, file.FullPath)
 
-			// Check filename against rules
 			analyzeFilename(file.Name, contentKey, location)
 
-			// Check if it's an archive - extract and analyze filenames within
 			if tools.IsArchive("", file.Name) {
 				data, err := client.readFile(share, file.FullPath)
 				if err != nil {
@@ -294,7 +356,6 @@ func Explore(
 					}
 				}
 			} else if isTextFile(file.Name) && file.Size <= maxFileSize {
-				// Analyze content for text files
 				data, err := client.readFile(share, file.FullPath)
 				if err != nil {
 					slog.Debug("smb: failed to read file", "share", share, "path", file.FullPath, "error", err)
@@ -309,8 +370,20 @@ func Explore(
 				}
 			}
 
-			memory.Set(memoryKey)
+			if !useFolderCache {
+				modifiedAt := filetimeToUnix(file.LastWriteTime)
+				memoryKey := fmt.Sprintf("smb/%s/%s/%s/%s/%d", name, hostname, share, normalizePath(file.FullPath), modifiedAt)
+				memory.Set(memoryKey)
+			}
+		})
+
+		if err != nil {
+			slog.Error("smb: failed to walk files", "share", share, "error", err)
+			client.session.TreeDisconnect(share)
+			continue
 		}
+
+		slog.Info("smb files processed", "target", name, "share", share, "count", fileCount)
 
 		client.session.TreeDisconnect(share)
 	}

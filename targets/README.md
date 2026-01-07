@@ -93,7 +93,7 @@ Attachments are analyzed for:
 
 Analyzes files from SMB/CIFS fileshares using NTLM authentication.
 
-### File
+### File (depth < folderCacheDepth)
 
 | Field | Format |
 |-------|--------|
@@ -103,6 +103,26 @@ Analyzes files from SMB/CIFS fileshares using NTLM authentication.
 **Example:**
 - Content Key: `Documents:reports/2024/annual.txt`
 - Memory Key: `smb/prod/fileserver.local/Documents/reports/2024/annual.txt/1704067200`
+
+### Folder (depth >= folderCacheDepth)
+
+At folder depth >= `folderCacheDepth`, folders are tracked instead of individual files to reduce database size.
+
+| Field | Format |
+|-------|--------|
+| Memory Key | `smb/{targetName}/{hostname}/{share}/folder:{folderPath}` |
+
+**Example:**
+- Memory Key: `smb/prod/fileserver.local/Documents/folder:reports/2024/quarterly`
+
+Folders are re-scanned when `folderRescanDuration` has elapsed since the last scan.
+
+### Configuration
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `folderCacheDepth` | 2 | Depth threshold for folder-level caching (0 disables) |
+| `folderRescanDuration` | 72h | Duration before re-scanning cached folders |
 
 Files are analyzed for:
 - Filename patterns (all files)

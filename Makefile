@@ -35,6 +35,17 @@ testhelper/smb:
 	@echo '1' > $(SMB_TEST_DIR)/id_rsa
 	@cd $(SMB_TEST_DIR) && zip secrets.zip id_rsa
 	@cd $(SMB_TEST_DIR) && rm id_rsa
+	# Create deep nested folder structure for testing folder caching
+	# depth 0: root files (foo.py, secrets.zip)
+	# depth 1: level1/
+	# depth 2: level1/level2/
+	# depth 3: level1/level2/level3/
+	# depth 4: level1/level2/level3/level4/
+	@mkdir -p $(SMB_TEST_DIR)/level1/level2/level3/level4
+	@echo 'shallow_secret = "sk_live_shallow123456789012"' > $(SMB_TEST_DIR)/level1/shallow.txt
+	@echo 'deep_secret = "sk_live_deep12345678901234"' > $(SMB_TEST_DIR)/level1/level2/level3/deep.txt
+	@echo 'deeper_secret = "sk_live_deeper1234567890"' > $(SMB_TEST_DIR)/level1/level2/level3/level4/deeper.txt
+	@echo '.env content' > $(SMB_TEST_DIR)/level1/level2/level3/level4/.env
 	docker run --rm \
 		--name idx-smb-test \
 		-p 445:445 \

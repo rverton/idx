@@ -41,12 +41,14 @@ type TargetJiraConfig struct {
 }
 
 type TargetSMBConfig struct {
-	Hostname          string `json:"hostname"`
-	Port              int    `json:"port"`
-	NTLMUser          string `json:"ntlmUser"`
-	NTLMPassword      string `json:"ntlmPassword"`
-	Domain            string `json:"domain"`
-	MaxRecursiveDepth int    `json:"maxRecursiveDepth"` // 0=root folder
+	Hostname             string `json:"hostname"`
+	Port                 int    `json:"port"`
+	NTLMUser             string `json:"ntlmUser"`
+	NTLMPassword         string `json:"ntlmPassword"`
+	Domain               string `json:"domain"`
+	MaxRecursiveDepth    int    `json:"maxRecursiveDepth"`    // 0=root folder
+	FolderCacheDepth     int    `json:"folderCacheDepth"`     // depth >= N uses folder-level caching (default: 2)
+	FolderRescanDuration string `json:"folderRescanDuration"` // duration before re-scanning cached folders (default: 72h)
 
 	Disabled bool `json:"disabled"`
 }
