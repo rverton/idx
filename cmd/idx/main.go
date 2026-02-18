@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"idx"
 	"idx/db"
@@ -39,10 +40,36 @@ func main() {
 		Usage: "idx [FLAGS] <subcommand>",
 		Flags: rootFlags,
 		Subcommands: []*ff.Command{
+			runCmd(),
 			configCmd(),
 			listRunsCmd(),
 			listFindingsCmd(),
 		},
+	}
+
+	if err := rootCmd.ParseAndRun(
+		context.Background(),
+		os.Args[1:],
+		ff.WithConfigFileFlag("config"),
+		ff.WithConfigFileParser(ff.PlainParser),
+	); err != nil {
+		if errors.Is(err, ff.ErrHelp) || errors.Is(err, ff.ErrNoExec) {
+			fmt.Fprintf(os.Stderr, "%s\n", ffhelp.Command(rootCmd))
+			os.Exit(0)
+		}
+
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		os.Exit(1)
+	}
+}
+
+func runCmd() *ff.Command {
+	runFlags := ff.NewFlagSet("run").SetParent(rootFlags)
+	return &ff.Command{
+		Name:      "run",
+		Usage:     "idx run [FLAGS]",
+		ShortHelp: "Starts an exploration run",
+		Flags:     runFlags,
 		Exec: func(ctx context.Context, args []string) error {
 			if *repeatDuration < 0 {
 				return fmt.Errorf("--repeat must be >= 0")
@@ -82,17 +109,6 @@ func main() {
 				}
 			}
 		},
-	}
-
-	if err := rootCmd.ParseAndRun(
-		context.Background(),
-		os.Args[1:],
-		ff.WithConfigFileFlag("config"),
-		ff.WithConfigFileParser(ff.PlainParser),
-	); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n\n", err)
-		fmt.Fprintf(os.Stderr, "%s\n", ffhelp.Command(rootCmd))
-		os.Exit(0)
 	}
 }
 

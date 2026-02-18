@@ -51,8 +51,8 @@ idx config decrypt
 #### Start exploration run
 
 ```bash
-idx
-idx --repeat 30m
+idx run
+idx run --repeat 30m
 ```
 
 Runs the exploration against all configured targets. Results are stored in a local sqlite database.
