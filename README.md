@@ -52,9 +52,11 @@ idx config decrypt
 
 ```bash
 idx
+idx --repeat 30m
 ```
 
 Runs the exploration against all configured targets. Results are stored in a local sqlite database.
+With `--repeat <duration>`, idx waits for the given Go duration and starts the next run in a loop.
 
 #### List Runs
 
@@ -111,4 +113,3 @@ Both callbacks are created by the core `Explore` function and passed to each tar
 
 - For the supported Atlassian targets a 30d trial license can be generated from their website.
 - Use `make testhelper/smb` to start a local SMB server with test data for development and testing.
-

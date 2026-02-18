@@ -25,6 +25,7 @@ import (
 var rootFlags = ff.NewFlagSet("idx")
 var verbose = rootFlags.Bool('v', "verbose", "Enable debug logging")
 var concurrencyLimit = rootFlags.Int('c', "concurrency", -1, "how many types of targets to explore concurrently (default: one worker per type)")
+var repeatDuration = rootFlags.Duration(0, "repeat", 0, "wait duration between runs (e.g. 1h, 6h, 24h); 0 disables repeat")
 
 const (
 	configFilename    = "config.json"
@@ -43,6 +44,10 @@ func main() {
 			listFindingsCmd(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
+			if *repeatDuration < 0 {
+				return fmt.Errorf("--repeat must be >= 0")
+			}
+
 			if *verbose {
 				slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 			}
@@ -58,36 +63,24 @@ func main() {
 				return fmt.Errorf("failed to connect to database: %w", err)
 			}
 
-			runId, err := queries.InsertRun(ctx, time.Now().Unix())
-			if err != nil {
-				return fmt.Errorf("failed to update run: %w", err)
-			}
+			for {
+				runStart := time.Now()
+				if err := runExploreOnce(ctx, config, queries, *concurrencyLimit); err != nil {
+					return err
+				}
+				runDuration := time.Since(runStart)
 
-			if err := idx.Explore(ctx, config, queries, runId, *concurrencyLimit); err != nil {
-				if err := queries.UpdateRun(ctx, db.UpdateRunParams{
-					ID:     runId,
-					Status: "failed",
-					ErrorMessage: sql.NullString{
-						String: err.Error(),
-						Valid:  true,
-					},
-					FinishedAt: sql.NullInt64{Int64: time.Now().Unix(), Valid: true},
-				}); err != nil {
-					fmt.Printf("failed to update failed run: %v", err)
+				if *repeatDuration == 0 {
+					return nil
 				}
 
-				return fmt.Errorf("exploration failed: %w", err)
+				slog.Info("run completed, waiting before next run", "duration", runDuration, "repeat", repeatDuration.String())
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(*repeatDuration):
+				}
 			}
-
-			if err := queries.UpdateRun(ctx, db.UpdateRunParams{
-				ID:         runId,
-				Status:     "completed",
-				FinishedAt: sql.NullInt64{Int64: time.Now().Unix(), Valid: true},
-			}); err != nil {
-				return fmt.Errorf("failed to update run: %w", err)
-			}
-
-			return nil
 		},
 	}
 
@@ -116,6 +109,39 @@ func configCmd() *ff.Command {
 			configListTargetsCmd(),
 		},
 	}
+}
+
+func runExploreOnce(ctx context.Context, config *idx.Config, queries *db.Queries, concurrencyLimit int) error {
+	runId, err := queries.InsertRun(ctx, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("failed to update run: %w", err)
+	}
+
+	if err := idx.Explore(ctx, config, queries, runId, concurrencyLimit); err != nil {
+		if err := queries.UpdateRun(ctx, db.UpdateRunParams{
+			ID:     runId,
+			Status: "failed",
+			ErrorMessage: sql.NullString{
+				String: err.Error(),
+				Valid:  true,
+			},
+			FinishedAt: sql.NullInt64{Int64: time.Now().Unix(), Valid: true},
+		}); err != nil {
+			fmt.Printf("failed to update failed run: %v", err)
+		}
+
+		return fmt.Errorf("exploration failed: %w", err)
+	}
+
+	if err := queries.UpdateRun(ctx, db.UpdateRunParams{
+		ID:         runId,
+		Status:     "completed",
+		FinishedAt: sql.NullInt64{Int64: time.Now().Unix(), Valid: true},
+	}); err != nil {
+		return fmt.Errorf("failed to update run: %w", err)
+	}
+
+	return nil
 }
 
 func listRunsCmd() *ff.Command {

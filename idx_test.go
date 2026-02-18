@@ -200,3 +200,29 @@ func TestMemoryStoreDirectQueriesIntegration(t *testing.T) {
 		t.Error("expected memory store to see key inserted directly via queries")
 	}
 }
+
+func TestExploreContinuesWhenTargetFails(t *testing.T) {
+	ctx := context.Background()
+
+	queries, err := db.Connect(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("failed to connect to database: %v", err)
+	}
+
+	runID, err := queries.InsertRun(ctx, 1234567890)
+	if err != nil {
+		t.Fatalf("failed to insert run: %v", err)
+	}
+
+	config := &Config{}
+	config.Targets.SMB = map[string]TargetSMBConfig{
+		"failing-smb": {
+			Hostname: "127.0.0.1",
+			Port:     1,
+		},
+	}
+
+	if err := Explore(ctx, config, queries, runID, -1); err != nil {
+		t.Fatalf("Explore() should not fail when a single target fails: %v", err)
+	}
+}

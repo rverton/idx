@@ -3,7 +3,6 @@ package idx
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"idx/db"
 	"idx/detect"
 	bitbucketcloud "idx/targets/bitbucket-cloud"
@@ -56,7 +55,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.ApiToken,
 				target.Workspaces,
 			); err != nil {
-				return fmt.Errorf("failed to explore Bitbucket Cloud target %s: %w", name, err)
+				slog.Error("failed to explore target", "target_type", "bitbucket-cloud", "target", name, "error", err)
+				continue
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
@@ -86,7 +86,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.Username,
 				target.ApiToken,
 			); err != nil {
-				return fmt.Errorf("failed to explore Bitbucket DC target %s: %w", name, err)
+				slog.Error("failed to explore target", "target_type", "bitbucket-dc", "target", name, "error", err)
+				continue
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
@@ -116,7 +117,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.SpaceNames,
 				target.DisableHistorySearch,
 			); err != nil {
-				return fmt.Errorf("failed to explore Confluence DC target %s: %w", name, err)
+				slog.Error("failed to explore target", "target_type", "confluence-dc", "target", name, "error", err)
+				continue
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
@@ -147,7 +149,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.ApiToken,
 				target.ProjectKeys,
 			); err != nil {
-				return fmt.Errorf("failed to explore Jira DC target %s: %w", name, err)
+				slog.Error("failed to explore target", "target_type", "jira-dc", "target", name, "error", err)
+				continue
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
@@ -201,7 +204,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				folderCacheDepth,
 				rescanDuration,
 			); err != nil {
-				return fmt.Errorf("failed to explore SMB target %s: %w", name, err)
+				slog.Error("failed to explore target", "target_type", "smb", "target", name, "error", err)
+				continue
 			}
 
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
