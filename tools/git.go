@@ -69,7 +69,7 @@ type FileChange struct {
 // excluding the file header ('+++' lines). This filters out context lines and deletions.
 func (fc FileChange) Additions() string {
 	var additions []string
-	for _, line := range strings.Split(fc.Patch, "\n") {
+	for line := range strings.SplitSeq(fc.Patch, "\n") {
 		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
 			additions = append(additions, strings.TrimPrefix(line, "+"))
 		}

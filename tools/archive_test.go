@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"slices"
 	"testing"
 )
 
@@ -73,13 +74,7 @@ func TestExtractArchiveFilenames_Zip(t *testing.T) {
 	}
 
 	for _, expected := range files {
-		found := false
-		for _, name := range names {
-			if name == expected {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(names, expected)
 		if !found {
 			t.Errorf("expected filename %q not found in %v", expected, names)
 		}
@@ -116,13 +111,7 @@ func TestExtractArchiveFilenames_Tar(t *testing.T) {
 	}
 
 	for _, expected := range files {
-		found := false
-		for _, name := range names {
-			if name == expected {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(names, expected)
 		if !found {
 			t.Errorf("expected filename %q not found in %v", expected, names)
 		}
@@ -161,13 +150,7 @@ func TestExtractArchiveFilenames_TarGz(t *testing.T) {
 	}
 
 	for _, expected := range files {
-		found := false
-		for _, name := range names {
-			if name == expected {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(names, expected)
 		if !found {
 			t.Errorf("expected filename %q not found in %v", expected, names)
 		}
