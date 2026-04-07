@@ -37,7 +37,7 @@ func TestNewAPIClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewAPIClient(tt.baseURL, tt.apiToken)
+			client, err := NewAPIClient(tt.baseURL, tt.apiToken, 0)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -57,7 +57,7 @@ func TestNewAPIClient(t *testing.T) {
 }
 
 func TestNewAPIClient_TrimsTrailingSlash(t *testing.T) {
-	client, err := NewAPIClient("http://localhost:8080/", "token123")
+	client, err := NewAPIClient("http://localhost:8080/", "token123", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

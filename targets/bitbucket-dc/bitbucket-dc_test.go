@@ -254,7 +254,7 @@ func TestNewAPIClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewAPIClient(tt.baseURL, tt.username, tt.apiToken)
+			client, err := NewAPIClient(tt.baseURL, tt.username, tt.apiToken, 0)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")

@@ -19,7 +19,7 @@ const (
 )
 
 func TestIntegration_SMBConnection(t *testing.T) {
-	client, err := NewClient(testHostname, testPort, testUser, testPassword, "")
+	client, err := NewClient(testHostname, testPort, testUser, testPassword, "", 0)
 	if err != nil {
 		t.Fatalf("failed to connect to SMB server: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestIntegration_SMBConnection(t *testing.T) {
 }
 
 func TestIntegration_EnumerateShares(t *testing.T) {
-	client, err := NewClient(testHostname, testPort, testUser, testPassword, "")
+	client, err := NewClient(testHostname, testPort, testUser, testPassword, "", 0)
 	if err != nil {
 		t.Fatalf("failed to connect to SMB server: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestIntegration_EnumerateShares(t *testing.T) {
 }
 
 func TestIntegration_ListFiles(t *testing.T) {
-	client, err := NewClient(testHostname, testPort, testUser, testPassword, "")
+	client, err := NewClient(testHostname, testPort, testUser, testPassword, "", 0)
 	if err != nil {
 		t.Fatalf("failed to connect to SMB server: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestIntegration_ListFiles(t *testing.T) {
 }
 
 func TestIntegration_ReadFile(t *testing.T) {
-	client, err := NewClient(testHostname, testPort, testUser, testPassword, "")
+	client, err := NewClient(testHostname, testPort, testUser, testPassword, "", 0)
 	if err != nil {
 		t.Fatalf("failed to connect to SMB server: %v", err)
 	}
@@ -159,6 +159,7 @@ func TestIntegration_Explore(t *testing.T) {
 		10,
 		0,             // folderCacheDepth=0 disables folder caching
 		24*time.Hour,
+		0,
 	)
 	if err != nil {
 		t.Fatalf("Explore failed: %v", err)
@@ -205,7 +206,7 @@ func TestIntegration_Explore(t *testing.T) {
 }
 
 func TestIntegration_ListFilesDeepNested(t *testing.T) {
-	client, err := NewClient(testHostname, testPort, testUser, testPassword, "")
+	client, err := NewClient(testHostname, testPort, testUser, testPassword, "", 0)
 	if err != nil {
 		t.Fatalf("failed to connect to SMB server: %v", err)
 	}
@@ -290,6 +291,7 @@ func TestIntegration_FolderCaching_SkipsDeepFolders(t *testing.T) {
 		10,
 		2,             // folderCacheDepth=2
 		24*time.Hour,  // rescan duration
+		0,
 	)
 	if err != nil {
 		t.Fatalf("Explore failed: %v", err)
@@ -378,6 +380,7 @@ func TestIntegration_FolderCaching_RescansExpiredFolders(t *testing.T) {
 		10,
 		2,             // folderCacheDepth=2
 		24*time.Hour,  // rescan duration (48h ago > 24h, so expired)
+		0,
 	)
 	if err != nil {
 		t.Fatalf("Explore failed: %v", err)
@@ -444,6 +447,7 @@ func TestIntegration_FolderCaching_MemoryKeyFormats(t *testing.T) {
 		10,
 		2,             // folderCacheDepth=2
 		24*time.Hour,
+		0,
 	)
 	if err != nil {
 		t.Fatalf("Explore failed: %v", err)

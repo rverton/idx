@@ -397,7 +397,7 @@ func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int
 
 	for name, target := range config.Targets.BitbucketCloud {
 		g.Go(func() error {
-			client, err := bitbucketcloud.NewAPIClient(target.Username, target.ApiToken)
+			client, err := bitbucketcloud.NewAPIClient(target.Username, target.ApiToken, 0)
 			if err != nil {
 				slog.Error("failed to create Bitbucket Cloud client", "target", name, "error", err)
 				return nil
@@ -432,7 +432,7 @@ func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int
 
 	for name, target := range config.Targets.BitbucketDC {
 		g.Go(func() error {
-			client, err := bitbucketdc.NewAPIClient(target.BaseURL, target.Username, target.ApiToken)
+			client, err := bitbucketdc.NewAPIClient(target.BaseURL, target.Username, target.ApiToken, 0)
 			if err != nil {
 				slog.Error("failed to create Bitbucket DC client", "target", name, "error", err)
 				return nil
@@ -467,7 +467,7 @@ func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int
 
 	for name, target := range config.Targets.ConfluenceDC {
 		g.Go(func() error {
-			client, err := confluencedc.NewAPIClient(target.BaseURL, target.ApiToken)
+			client, err := confluencedc.NewAPIClient(target.BaseURL, target.ApiToken, 0)
 			if err != nil {
 				slog.Error("failed to create Confluence DC client", "target", name, "error", err)
 				return nil
@@ -498,7 +498,7 @@ func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int
 
 	for name, target := range config.Targets.JiraDC {
 		g.Go(func() error {
-			client, err := jiradc.NewAPIClient(target.BaseURL, target.ApiToken)
+			client, err := jiradc.NewAPIClient(target.BaseURL, target.ApiToken, 0)
 			if err != nil {
 				slog.Error("failed to create Jira DC client", "target", name, "error", err)
 				return nil
@@ -529,7 +529,7 @@ func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int
 
 	for name, target := range config.Targets.SMB {
 		g.Go(func() error {
-			client, err := smb.NewClient(target.Hostname, target.Port, target.NTLMUser, target.NTLMPassword, target.Domain)
+			client, err := smb.NewClient(target.Hostname, target.Port, target.NTLMUser, target.NTLMPassword, target.Domain, 0)
 			if err != nil {
 				slog.Error("failed to create SMB client", "target", name, "error", err)
 				return nil

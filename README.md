@@ -66,6 +66,36 @@ idx list-runs
 
 Lists all exploration runs from the database.
 
+## Configuration
+
+### Throttling
+
+Each target supports a `throttleMs` setting that controls the minimum delay (in milliseconds) between API requests or file operations. This prevents overwhelming target services with too many requests.
+
+| Target | Default | Description |
+|---|---|---|
+| Bitbucket Cloud | 100ms | Cloud API rate limits |
+| Bitbucket DC | 100ms | Self-hosted API |
+| Confluence DC | 100ms | Self-hosted API |
+| Jira DC | 100ms | Self-hosted API |
+| SMB | 0 (disabled) | Local network file protocol |
+
+The throttle is applied per-target instance. If the time between two consecutive requests already exceeds the throttle interval (e.g., due to processing), no additional delay is added.
+
+```json
+{
+  "targets": {
+    "confluence-dc": {
+      "my-confluence": {
+        "throttleMs": 200
+      }
+    }
+  }
+}
+```
+
+Set to `-1` to explicitly disable throttling (bypass the default).
+
 ## Development
 
 ### Target Callbacks

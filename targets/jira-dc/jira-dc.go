@@ -17,12 +17,14 @@ import (
 )
 
 type APIClient struct {
-	BaseURL    string
-	ApiToken   string
-	HTTPClient *http.Client
+	BaseURL     string
+	ApiToken    string
+	HTTPClient  *http.Client
+	throttle    time.Duration
+	lastRequest time.Time
 }
 
-func NewAPIClient(baseURL, apiToken string) (*APIClient, error) {
+func NewAPIClient(baseURL, apiToken string, throttle time.Duration) (*APIClient, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("baseURL is required for Jira Data Center")
 	}
@@ -37,10 +39,18 @@ func NewAPIClient(baseURL, apiToken string) (*APIClient, error) {
 		HTTPClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		throttle: throttle,
 	}, nil
 }
 
 func (c *APIClient) doRequest(req *http.Request) (*http.Response, error) {
+	if c.throttle > 0 {
+		if elapsed := time.Since(c.lastRequest); elapsed < c.throttle {
+			time.Sleep(c.throttle - elapsed)
+		}
+	}
+	c.lastRequest = time.Now()
+
 	req.Header.Set("Authorization", "Bearer "+c.ApiToken)
 
 	resp, err := c.HTTPClient.Do(req)
@@ -260,8 +270,9 @@ func Explore(
 	baseURL string,
 	apiToken string,
 	projectKeys []string,
+	throttle time.Duration,
 ) error {
-	client, err := NewAPIClient(baseURL, apiToken)
+	client, err := NewAPIClient(baseURL, apiToken, throttle)
 	if err != nil {
 		return fmt.Errorf("jira-dc: %w", err)
 	}

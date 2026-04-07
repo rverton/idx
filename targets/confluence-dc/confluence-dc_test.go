@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 )
 
 func TestNewAPIClient(t *testing.T) {
@@ -42,7 +44,7 @@ func TestNewAPIClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewAPIClient(tt.baseURL, tt.apiToken)
+			client, err := NewAPIClient(tt.baseURL, tt.apiToken, 0)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -62,7 +64,7 @@ func TestNewAPIClient(t *testing.T) {
 }
 
 func TestNewAPIClient_TrimsTrailingSlash(t *testing.T) {
-	client, err := NewAPIClient("http://localhost:8090/", "token")
+	client, err := NewAPIClient("http://localhost:8090/", "token", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,7 +90,7 @@ func TestResolveSpaceKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "token")
+	client, _ := NewAPIClient(server.URL, "token", 0)
 
 	tests := []struct {
 		name      string
@@ -206,7 +208,7 @@ func TestListPagesInSpace(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "token")
+	client, _ := NewAPIClient(server.URL, "token", 0)
 
 	pages, err := client.listPagesInSpace(context.Background(), "TEST")
 	if err != nil {
@@ -244,7 +246,7 @@ func TestListPageVersions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "token")
+	client, _ := NewAPIClient(server.URL, "token", 0)
 
 	versions, err := client.listPageVersions(context.Background(), "123")
 	if err != nil {
@@ -299,7 +301,7 @@ func TestGetPageVersionContent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "token")
+	client, _ := NewAPIClient(server.URL, "token", 0)
 
 	content, err := client.getPageVersionContent(context.Background(), "123", 2)
 	if err != nil {
@@ -349,7 +351,7 @@ func TestVerifyConnection(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client, _ := NewAPIClient(server.URL, "token")
+			client, _ := NewAPIClient(server.URL, "token", 0)
 
 			err := client.VerifyConnection(context.Background())
 			if tt.wantErr && err == nil {
@@ -430,6 +432,7 @@ func TestExplore_DisableHistorySearch(t *testing.T) {
 		"token",
 		[]string{"Test Space"},
 		true, // disableHistorySearch
+		0,
 	)
 
 	if err != nil {
@@ -543,6 +546,7 @@ func TestExplore_WithHistorySearch(t *testing.T) {
 		"token",
 		[]string{"Test Space"},
 		false, // enable history search
+		0,
 	)
 
 	if err != nil {
@@ -610,6 +614,7 @@ func TestExplore_MemoryStoreSkipsAnalyzed(t *testing.T) {
 		"token",
 		[]string{"Test Space"},
 		true,
+		0,
 	)
 	if err != nil {
 		t.Fatalf("first run error: %v", err)
@@ -629,6 +634,7 @@ func TestExplore_MemoryStoreSkipsAnalyzed(t *testing.T) {
 		"token",
 		[]string{"Test Space"},
 		true,
+		0,
 	)
 	if err != nil {
 		t.Fatalf("second run error: %v", err)
@@ -694,6 +700,7 @@ func TestExplore_ContentFormat(t *testing.T) {
 		"token",
 		[]string{"My Space"},
 		true,
+		0,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -735,7 +742,7 @@ func TestDoRequest_BearerAuth(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "my-secret-token")
+	client, _ := NewAPIClient(server.URL, "my-secret-token", 0)
 
 	req, _ := http.NewRequest("GET", server.URL+"/test", nil)
 	_, err := client.doRequest(req)
@@ -746,4 +753,35 @@ func TestDoRequest_BearerAuth(t *testing.T) {
 	if authHeader != "Bearer my-secret-token" {
 		t.Errorf("expected 'Bearer my-secret-token', got %q", authHeader)
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestDoRequest_Throttle(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client := &APIClient{
+			BaseURL:  "http://example.com",
+			ApiToken: "token",
+			HTTPClient: &http.Client{
+				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
+				}),
+			},
+			throttle: 100 * time.Millisecond,
+		}
+
+		start := time.Now()
+		for i := 0; i < 5; i++ {
+			req, _ := http.NewRequest("GET", "http://example.com/test", nil)
+			client.doRequest(req)
+		}
+		elapsed := time.Since(start)
+
+		// first request is immediate, 4 gaps of 100ms = 400ms minimum
+		if elapsed < 400*time.Millisecond {
+			t.Errorf("elapsed %v, want >= 400ms", elapsed)
+		}
+	})
 }

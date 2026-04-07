@@ -36,11 +36,13 @@ var textExtensions = []string{
 }
 
 type Client struct {
-	session  *smb.Connection
-	hostname string
+	session     *smb.Connection
+	hostname    string
+	throttle    time.Duration
+	lastRequest time.Time
 }
 
-func NewClient(hostname string, port int, user, password, domain string) (*Client, error) {
+func NewClient(hostname string, port int, user, password, domain string, throttle time.Duration) (*Client, error) {
 	if hostname == "" {
 		return nil, fmt.Errorf("hostname is required for SMB target")
 	}
@@ -71,6 +73,7 @@ func NewClient(hostname string, port int, user, password, domain string) (*Clien
 	return &Client{
 		session:  session,
 		hostname: hostname,
+		throttle: throttle,
 	}, nil
 }
 
@@ -125,7 +128,17 @@ func (c *Client) EnumerateShares() ([]string, error) {
 	return shares, nil
 }
 
+func (c *Client) wait() {
+	if c.throttle > 0 {
+		if elapsed := time.Since(c.lastRequest); elapsed < c.throttle {
+			time.Sleep(c.throttle - elapsed)
+		}
+	}
+	c.lastRequest = time.Now()
+}
+
 func (c *Client) readFile(share, path string) ([]byte, error) {
+	c.wait()
 	var buf bytes.Buffer
 	limitedWriter := &limitedWriter{w: &buf, remaining: maxFileSize}
 
@@ -229,6 +242,7 @@ func (c *Client) walkFiles(opts walkOpts, fn func(file smb.SharedFile, depth int
 		}
 	}
 
+	c.wait()
 	files, err := c.session.ListDirectory(opts.share, opts.dir, "*")
 	if err != nil {
 		return err
@@ -273,8 +287,9 @@ func Explore(
 	maxRecursiveDepth int,
 	folderCacheDepth int,
 	folderRescanDuration time.Duration,
+	throttle time.Duration,
 ) error {
-	client, err := NewClient(hostname, port, user, password, domain)
+	client, err := NewClient(hostname, port, user, password, domain, throttle)
 	if err != nil {
 		return fmt.Errorf("smb: %w", err)
 	}

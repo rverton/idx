@@ -17,6 +17,21 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// throttleDuration returns the configured throttle duration or the given default.
+// A negative value disables throttling, zero uses the default.
+func throttleDuration(configuredMs, defaultMs int) time.Duration {
+	if configuredMs < 0 {
+		return 0
+	}
+
+	ms := defaultMs
+	if configuredMs > 0 {
+		ms = configuredMs
+	}
+
+	return time.Duration(ms) * time.Millisecond
+}
+
 // Explore explores all configured targets concurrently with a limit on the number of concurrent explorations.
 //
 // iterating over each target type one by one looks a bit repetitive, but it makes it clear
@@ -54,6 +69,7 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.Username,
 				target.ApiToken,
 				target.Workspaces,
+				throttleDuration(target.ThrottleMs, 100),
 			); err != nil {
 				slog.Error("failed to explore target", "target_type", "bitbucket-cloud", "target", name, "error", err)
 				continue
@@ -85,6 +101,7 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.BaseURL,
 				target.Username,
 				target.ApiToken,
+				throttleDuration(target.ThrottleMs, 100),
 			); err != nil {
 				slog.Error("failed to explore target", "target_type", "bitbucket-dc", "target", name, "error", err)
 				continue
@@ -116,6 +133,7 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.ApiToken,
 				target.SpaceNames,
 				target.DisableHistorySearch,
+				throttleDuration(target.ThrottleMs, 100),
 			); err != nil {
 				slog.Error("failed to explore target", "target_type", "confluence-dc", "target", name, "error", err)
 				continue
@@ -148,6 +166,7 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.BaseURL,
 				target.ApiToken,
 				target.ProjectKeys,
+				throttleDuration(target.ThrottleMs, 100),
 			); err != nil {
 				slog.Error("failed to explore target", "target_type", "jira-dc", "target", name, "error", err)
 				continue
@@ -203,6 +222,7 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.MaxRecursiveDepth,
 				folderCacheDepth,
 				rescanDuration,
+				throttleDuration(target.ThrottleMs, 0),
 			); err != nil {
 				slog.Error("failed to explore target", "target_type", "smb", "target", name, "error", err)
 				continue

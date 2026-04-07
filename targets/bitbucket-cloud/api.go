@@ -14,14 +14,16 @@ import (
 
 // APIClient represents a Bitbucket Cloud API client.
 type APIClient struct {
-	BaseURL    string
-	Username   string
-	ApiToken   string
-	HTTPClient *http.Client
+	BaseURL     string
+	Username    string
+	ApiToken    string
+	HTTPClient  *http.Client
+	throttle    time.Duration
+	lastRequest time.Time
 }
 
 // NewAPIClient creates a new Bitbucket Cloud API client.
-func NewAPIClient(username, apiToken string) (*APIClient, error) {
+func NewAPIClient(username, apiToken string, throttle time.Duration) (*APIClient, error) {
 	if username == "" || apiToken == "" {
 		return nil, fmt.Errorf("both username and apiToken must be provided for Bitbucket Cloud API client")
 	}
@@ -33,6 +35,7 @@ func NewAPIClient(username, apiToken string) (*APIClient, error) {
 		HTTPClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		throttle: throttle,
 	}, nil
 }
 
@@ -42,6 +45,13 @@ func (c APIClient) RepoURL(repo string) string {
 
 // doRequest is a helper to make HTTP requests, adding authentication if configured.
 func (c *APIClient) doRequest(req *http.Request) (*http.Response, error) {
+	if c.throttle > 0 {
+		if elapsed := time.Since(c.lastRequest); elapsed < c.throttle {
+			time.Sleep(c.throttle - elapsed)
+		}
+	}
+	c.lastRequest = time.Now()
+
 	req.SetBasicAuth(c.Username, c.ApiToken)
 
 	resp, err := c.HTTPClient.Do(req)
@@ -196,9 +206,10 @@ func Explore(
 	username string,
 	apiToken string,
 	workspaces []string,
+	throttle time.Duration,
 ) error {
 
-	client, err := NewAPIClient(username, apiToken)
+	client, err := NewAPIClient(username, apiToken, throttle)
 	if err != nil {
 		return fmt.Errorf("bitbucket-cloud: %w", err)
 	}
