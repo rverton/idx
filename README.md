@@ -96,6 +96,23 @@ The throttle is applied per-target instance. If the time between two consecutive
 
 Set to `-1` to explicitly disable throttling (bypass the default).
 
+### Concurrency
+
+`idx run` explores targets using one worker per target type. Targets within the same type are processed sequentially. For example, if you configure multiple `confluence-dc` targets, they are explored one after another.
+
+Different target types may run at the same time. This means a `jira-dc`, `confluence-dc`, and `bitbucket-dc` target can be explored in parallel during the same run.
+
+Use `--concurrency` to limit how many target types run at once:
+
+```bash
+idx run --concurrency 1
+```
+
+Per-target `throttleMs` and `--concurrency` control different things:
+
+- `throttleMs` spaces requests within a single target instance
+- `--concurrency` limits how many target types are explored at the same time
+
 ## Development
 
 ### Target Callbacks
