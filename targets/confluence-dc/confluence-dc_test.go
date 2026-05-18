@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"idx/detect"
+	"idx/httpx"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,7 +45,7 @@ func TestNewAPIClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewAPIClient(tt.baseURL, tt.apiToken, 0)
+			client, err := NewAPIClient("test-target", tt.baseURL, tt.apiToken, 0)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -64,7 +65,7 @@ func TestNewAPIClient(t *testing.T) {
 }
 
 func TestNewAPIClient_TrimsTrailingSlash(t *testing.T) {
-	client, err := NewAPIClient("http://localhost:8090/", "token", 0)
+	client, err := NewAPIClient("test-target", "http://localhost:8090/", "token", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -90,7 +91,7 @@ func TestResolveSpaceKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "token", 0)
+	client, _ := NewAPIClient("test-target", server.URL, "token", 0)
 
 	tests := []struct {
 		name      string
@@ -208,7 +209,7 @@ func TestListPagesInSpace(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "token", 0)
+	client, _ := NewAPIClient("test-target", server.URL, "token", 0)
 
 	pages, err := client.listPagesInSpace(context.Background(), "TEST")
 	if err != nil {
@@ -246,7 +247,7 @@ func TestListPageVersions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "token", 0)
+	client, _ := NewAPIClient("test-target", server.URL, "token", 0)
 
 	versions, err := client.listPageVersions(context.Background(), "123")
 	if err != nil {
@@ -301,7 +302,7 @@ func TestGetPageVersionContent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "token", 0)
+	client, _ := NewAPIClient("test-target", server.URL, "token", 0)
 
 	content, err := client.getPageVersionContent(context.Background(), "123", 2)
 	if err != nil {
@@ -351,7 +352,7 @@ func TestVerifyConnection(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client, _ := NewAPIClient(server.URL, "token", 0)
+			client, _ := NewAPIClient("test-target", server.URL, "token", 0)
 
 			err := client.VerifyConnection(context.Background())
 			if tt.wantErr && err == nil {
@@ -742,10 +743,12 @@ func TestDoRequest_BearerAuth(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := NewAPIClient(server.URL, "my-secret-token", 0)
+	client, _ := NewAPIClient("test-target", server.URL, "my-secret-token", 0)
 
 	req, _ := http.NewRequest("GET", server.URL+"/test", nil)
-	_, err := client.doRequest(req)
+	req.Header.Set("Authorization", "Bearer "+client.ApiToken)
+	client.requester.TargetName = "test-target"
+	_, err := client.requester.Do(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -764,18 +767,22 @@ func TestDoRequest_Throttle(t *testing.T) {
 		client := &APIClient{
 			BaseURL:  "http://example.com",
 			ApiToken: "token",
-			HTTPClient: &http.Client{
-				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-					return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
-				}),
+			requester: &httpx.Requester{
+				HTTPClient: &http.Client{
+					Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+						return &http.Response{StatusCode: 200, Status: "200 OK", Body: http.NoBody}, nil
+					}),
+				},
+				Throttle:   100 * time.Millisecond,
+				TargetName: "test-target",
 			},
-			throttle: 100 * time.Millisecond,
 		}
 
 		start := time.Now()
 		for i := 0; i < 5; i++ {
 			req, _ := http.NewRequest("GET", "http://example.com/test", nil)
-			client.doRequest(req)
+			req.Header.Set("Authorization", "Bearer "+client.ApiToken)
+			client.requester.Do(req)
 		}
 		elapsed := time.Since(start)
 

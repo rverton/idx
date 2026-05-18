@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"idx/detect"
+	"idx/httpx"
 	"idx/tools"
 	"io"
 	"log/slog"
@@ -17,14 +18,12 @@ import (
 )
 
 type APIClient struct {
-	BaseURL     string
-	ApiToken    string
-	HTTPClient  *http.Client
-	throttle    time.Duration
-	lastRequest time.Time
+	BaseURL   string
+	ApiToken  string
+	requester *httpx.Requester
 }
 
-func NewAPIClient(baseURL, apiToken string, throttle time.Duration) (*APIClient, error) {
+func NewAPIClient(targetName, baseURL, apiToken string, throttle time.Duration) (*APIClient, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("baseURL is required for Jira Data Center")
 	}
@@ -36,43 +35,27 @@ func NewAPIClient(baseURL, apiToken string, throttle time.Duration) (*APIClient,
 	return &APIClient{
 		BaseURL:  strings.TrimSuffix(baseURL, "/"),
 		ApiToken: apiToken,
-		HTTPClient: &http.Client{
-			Timeout: 10 * time.Second,
+		requester: &httpx.Requester{
+			HTTPClient: &http.Client{Timeout: 10 * time.Second},
+			Throttle:   throttle,
+			TargetType: "jira-dc",
+			TargetName: targetName,
+			ResponseError: func(req *http.Request, resp *http.Response) error {
+				var errMsg string
+				if resp.Body != nil {
+					body := make([]byte, 512)
+					n, _ := resp.Body.Read(body)
+					if n > 0 {
+						errMsg = string(body[:n])
+					}
+				}
+				if errMsg != "" {
+					return fmt.Errorf("API request to %s failed with status %s: %s", req.URL.String(), resp.Status, errMsg)
+				}
+				return fmt.Errorf("API request to %s failed with status %s", req.URL.String(), resp.Status)
+			},
 		},
-		throttle: throttle,
 	}, nil
-}
-
-func (c *APIClient) doRequest(req *http.Request) (*http.Response, error) {
-	if c.throttle > 0 {
-		if elapsed := time.Since(c.lastRequest); elapsed < c.throttle {
-			time.Sleep(c.throttle - elapsed)
-		}
-	}
-	c.lastRequest = time.Now()
-
-	req.Header.Set("Authorization", "Bearer "+c.ApiToken)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return resp, err
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var errMsg string
-		if resp.Body != nil {
-			body := make([]byte, 512)
-			n, _ := resp.Body.Read(body)
-			if n > 0 {
-				errMsg = string(body[:n])
-			}
-		}
-		if errMsg != "" {
-			return resp, fmt.Errorf("API request to %s failed with status %s: %s", req.URL.String(), resp.Status, errMsg)
-		}
-		return resp, fmt.Errorf("API request to %s failed with status %s", req.URL.String(), resp.Status)
-	}
-	return resp, nil
 }
 
 func (c *APIClient) VerifyConnection(ctx context.Context) error {
@@ -84,8 +67,9 @@ func (c *APIClient) VerifyConnection(ctx context.Context) error {
 	}
 
 	slog.Debug("Jira DC API Request", "method", req.Method, "url", req.URL.String())
+	req.Header.Set("Authorization", "Bearer "+c.ApiToken)
 
-	resp, err := c.doRequest(req)
+	resp, err := c.requester.Do(req)
 	if err != nil {
 		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
 			return fmt.Errorf("jira data center authentication failed at %s (HTTP %d): %w", endpointURL, resp.StatusCode, err)
@@ -160,7 +144,8 @@ func (c *APIClient) searchIssues(ctx context.Context, projectKey string) ([]Issu
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		resp, err := c.doRequest(req)
+		req.Header.Set("Authorization", "Bearer "+c.ApiToken)
+		resp, err := c.requester.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to search issues for project %s: %w", projectKey, err)
 		}
@@ -196,7 +181,8 @@ func (c *APIClient) getComments(ctx context.Context, issueKey string) ([]Comment
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		resp, err := c.doRequest(req)
+		req.Header.Set("Authorization", "Bearer "+c.ApiToken)
+		resp, err := c.requester.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get comments for issue %s: %w", issueKey, err)
 		}
@@ -226,7 +212,8 @@ func (c *APIClient) downloadAttachment(ctx context.Context, contentURL string) (
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	resp, err := c.doRequest(req)
+	req.Header.Set("Authorization", "Bearer "+c.ApiToken)
+	resp, err := c.requester.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download attachment: %w", err)
 	}
@@ -272,7 +259,7 @@ func Explore(
 	projectKeys []string,
 	throttle time.Duration,
 ) error {
-	client, err := NewAPIClient(baseURL, apiToken, throttle)
+	client, err := NewAPIClient(name, baseURL, apiToken, throttle)
 	if err != nil {
 		return fmt.Errorf("jira-dc: %w", err)
 	}

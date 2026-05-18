@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"idx/detect"
+	"idx/httpx"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -15,14 +16,12 @@ import (
 )
 
 type APIClient struct {
-	BaseURL     string
-	ApiToken    string
-	HTTPClient  *http.Client
-	throttle    time.Duration
-	lastRequest time.Time
+	BaseURL   string
+	ApiToken  string
+	requester *httpx.Requester
 }
 
-func NewAPIClient(baseURL, apiToken string, throttle time.Duration) (*APIClient, error) {
+func NewAPIClient(targetName, baseURL, apiToken string, throttle time.Duration) (*APIClient, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("baseURL is required for Confluence Data Center")
 	}
@@ -34,45 +33,27 @@ func NewAPIClient(baseURL, apiToken string, throttle time.Duration) (*APIClient,
 	return &APIClient{
 		BaseURL:  strings.TrimSuffix(baseURL, "/"),
 		ApiToken: apiToken,
-		HTTPClient: &http.Client{
-			Timeout: 10 * time.Second,
+		requester: &httpx.Requester{
+			HTTPClient: &http.Client{Timeout: 10 * time.Second},
+			Throttle:   throttle,
+			TargetType: "confluence-dc",
+			TargetName: targetName,
+			ResponseError: func(req *http.Request, resp *http.Response) error {
+				var errMsg string
+				if resp.Body != nil {
+					body := make([]byte, 512)
+					n, _ := resp.Body.Read(body)
+					if n > 0 {
+						errMsg = string(body[:n])
+					}
+				}
+				if errMsg != "" {
+					return fmt.Errorf("API request to %s failed with status %s: %s", req.URL.String(), resp.Status, errMsg)
+				}
+				return fmt.Errorf("API request to %s failed with status %s", req.URL.String(), resp.Status)
+			},
 		},
-		throttle: throttle,
 	}, nil
-}
-
-func (c *APIClient) doRequest(req *http.Request) (*http.Response, error) {
-	if c.throttle > 0 {
-		if elapsed := time.Since(c.lastRequest); elapsed < c.throttle {
-			time.Sleep(c.throttle - elapsed)
-		}
-	}
-	c.lastRequest = time.Now()
-
-	// Confluence DC uses Bearer token authentication for PATs
-	req.Header.Set("Authorization", "Bearer "+c.ApiToken)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return resp, err
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Try to read error body for more context
-		var errMsg string
-		if resp.Body != nil {
-			body := make([]byte, 512)
-			n, _ := resp.Body.Read(body)
-			if n > 0 {
-				errMsg = string(body[:n])
-			}
-		}
-		if errMsg != "" {
-			return resp, fmt.Errorf("API request to %s failed with status %s: %s", req.URL.String(), resp.Status, errMsg)
-		}
-		return resp, fmt.Errorf("API request to %s failed with status %s", req.URL.String(), resp.Status)
-	}
-	return resp, nil
 }
 
 func (c *APIClient) VerifyConnection(ctx context.Context) error {
@@ -84,8 +65,9 @@ func (c *APIClient) VerifyConnection(ctx context.Context) error {
 	}
 
 	slog.Debug("Confluence DC API Request", "method", req.Method, "url", req.URL.String())
+	req.Header.Set("Authorization", "Bearer "+c.ApiToken)
 
-	resp, err := c.doRequest(req)
+	resp, err := c.requester.Do(req)
 	if err != nil {
 		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
 			return fmt.Errorf("confluence data center authentication failed at %s (HTTP %d): %w", endpointURL, resp.StatusCode, err)
@@ -128,7 +110,8 @@ func (c *APIClient) listSpaces(ctx context.Context) ([]SpaceResult, error) {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		resp, err := c.doRequest(req)
+		req.Header.Set("Authorization", "Bearer "+c.ApiToken)
+		resp, err := c.requester.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list spaces: %w", err)
 		}
@@ -213,7 +196,8 @@ func (c *APIClient) listPagesInSpace(ctx context.Context, spaceKey string) ([]Co
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		resp, err := c.doRequest(req)
+		req.Header.Set("Authorization", "Bearer "+c.ApiToken)
+		resp, err := c.requester.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list pages for space %s: %w", spaceKey, err)
 		}
@@ -263,7 +247,8 @@ func (c *APIClient) listPageVersions(ctx context.Context, pageID string) ([]int,
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		resp, err := c.doRequest(req)
+		req.Header.Set("Authorization", "Bearer "+c.ApiToken)
+		resp, err := c.requester.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list versions for page %s: %w", pageID, err)
 		}
@@ -309,7 +294,8 @@ func (c *APIClient) getPageVersionContent(ctx context.Context, pageID string, ve
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	resp, err := c.doRequest(req)
+	req.Header.Set("Authorization", "Bearer "+c.ApiToken)
+	resp, err := c.requester.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get version %d for page %s: %w", version, pageID, err)
 	}
@@ -334,7 +320,7 @@ func Explore(
 	disableHistorySearch bool,
 	throttle time.Duration,
 ) error {
-	client, err := NewAPIClient(baseURL, apiToken, throttle)
+	client, err := NewAPIClient(name, baseURL, apiToken, throttle)
 	if err != nil {
 		return fmt.Errorf("confluence-dc: %w", err)
 	}

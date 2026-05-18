@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"idx"
 	"idx/db"
+	"idx/httpx"
 	bitbucketcloud "idx/targets/bitbucket-cloud"
 	bitbucketdc "idx/targets/bitbucket-dc"
 	confluencedc "idx/targets/confluence-dc"
@@ -68,6 +69,7 @@ func main() {
 
 func runCmd() *ff.Command {
 	runFlags := ff.NewFlagSet("run").SetParent(rootFlags)
+	logEveryNRequests := runFlags.Int(0, "log-every-n-requests", 0, "emit target http progress every N requests; 0 disables it")
 	return &ff.Command{
 		Name:      "run",
 		Usage:     "idx run [FLAGS]",
@@ -77,6 +79,10 @@ func runCmd() *ff.Command {
 			if *repeatDuration < 0 {
 				return fmt.Errorf("--repeat must be >= 0")
 			}
+			if *logEveryNRequests < 0 {
+				return fmt.Errorf("--log-every-n-requests must be >= 0")
+			}
+			httpx.SetDefaultLogEvery(*logEveryNRequests)
 
 			if *verbose || *logFile != "" || *logFormat != "text" {
 				logWriter, err := openLogWriter(*logFile)
@@ -470,7 +476,7 @@ func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int
 
 	for name, target := range config.Targets.BitbucketCloud {
 		g.Go(func() error {
-			client, err := bitbucketcloud.NewAPIClient(target.Username, target.ApiToken, 0)
+			client, err := bitbucketcloud.NewAPIClient(name, target.Username, target.ApiToken, 0)
 			if err != nil {
 				slog.Error("failed to create Bitbucket Cloud client", "target", name, "error", err)
 				return nil
@@ -505,7 +511,7 @@ func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int
 
 	for name, target := range config.Targets.BitbucketDC {
 		g.Go(func() error {
-			client, err := bitbucketdc.NewAPIClient(target.BaseURL, target.Username, target.ApiToken, 0)
+			client, err := bitbucketdc.NewAPIClient(name, target.BaseURL, target.Username, target.ApiToken, 0)
 			if err != nil {
 				slog.Error("failed to create Bitbucket DC client", "target", name, "error", err)
 				return nil
@@ -540,7 +546,7 @@ func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int
 
 	for name, target := range config.Targets.ConfluenceDC {
 		g.Go(func() error {
-			client, err := confluencedc.NewAPIClient(target.BaseURL, target.ApiToken, 0)
+			client, err := confluencedc.NewAPIClient(name, target.BaseURL, target.ApiToken, 0)
 			if err != nil {
 				slog.Error("failed to create Confluence DC client", "target", name, "error", err)
 				return nil
@@ -571,7 +577,7 @@ func verifyTargets(ctx context.Context, config *idx.Config, concurrencyLimit int
 
 	for name, target := range config.Targets.JiraDC {
 		g.Go(func() error {
-			client, err := jiradc.NewAPIClient(target.BaseURL, target.ApiToken, 0)
+			client, err := jiradc.NewAPIClient(name, target.BaseURL, target.ApiToken, 0)
 			if err != nil {
 				slog.Error("failed to create Jira DC client", "target", name, "error", err)
 				return nil
