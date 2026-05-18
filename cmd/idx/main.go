@@ -13,6 +13,7 @@ import (
 	confluencedc "idx/targets/confluence-dc"
 	jiradc "idx/targets/jira-dc"
 	"idx/targets/smb"
+	"io"
 	"log"
 	"log/slog"
 	"os"
@@ -26,6 +27,8 @@ import (
 var rootFlags = ff.NewFlagSet("idx")
 var verbose = rootFlags.Bool('v', "verbose", "Enable debug logging")
 var concurrencyLimit = rootFlags.Int('c', "concurrency", -1, "how many types of targets to explore concurrently (default: one worker per type)")
+var logFormat = rootFlags.String(0, "log-format", "text", "log format: text or json")
+var logFile = rootFlags.String(0, "log-file", "", "write logs to file instead of stderr")
 var repeatDuration = rootFlags.Duration(0, "repeat", 0, "wait duration between runs (e.g. 1h, 6h, 24h); 0 disables repeat")
 
 const (
@@ -75,9 +78,22 @@ func runCmd() *ff.Command {
 				return fmt.Errorf("--repeat must be >= 0")
 			}
 
-			if *verbose {
-				slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+			if *verbose || *logFile != "" || *logFormat != "text" {
+				logWriter, err := openLogWriter(*logFile)
+				if err != nil {
+					return err
+				}
+				if logWriter != os.Stderr {
+					defer logWriter.Close()
+				}
+
+				logger, err := newLogger(logWriter, *logFormat, *verbose)
+				if err != nil {
+					return err
+				}
+				slog.SetDefault(logger)
 			}
+
 			slog.Info("internal data explorer started")
 
 			config, err := loadConfig(configFilename, configFilenameEnc)
@@ -133,6 +149,14 @@ func runExploreOnce(ctx context.Context, config *idx.Config, queries *db.Queries
 		return fmt.Errorf("failed to update run: %w", err)
 	}
 
+	runStart := time.Now()
+	slog.Info("run started",
+		"event", "run.started",
+		"run_id", runId,
+		"concurrency_limit", concurrencyLimit,
+		"repeat_duration", repeatDuration.String(),
+	)
+
 	if err := idx.Explore(ctx, config, queries, runId, concurrencyLimit); err != nil {
 		if err := queries.UpdateRun(ctx, db.UpdateRunParams{
 			ID:     runId,
@@ -146,6 +170,13 @@ func runExploreOnce(ctx context.Context, config *idx.Config, queries *db.Queries
 			fmt.Printf("failed to update failed run: %v", err)
 		}
 
+		slog.Error("run failed",
+			"event", "run.failed",
+			"run_id", runId,
+			"duration_ms", time.Since(runStart).Milliseconds(),
+			"error", err,
+		)
+
 		return fmt.Errorf("exploration failed: %w", err)
 	}
 
@@ -154,10 +185,52 @@ func runExploreOnce(ctx context.Context, config *idx.Config, queries *db.Queries
 		Status:     "completed",
 		FinishedAt: sql.NullInt64{Int64: time.Now().Unix(), Valid: true},
 	}); err != nil {
+		slog.Error("run failed",
+			"event", "run.failed",
+			"run_id", runId,
+			"duration_ms", time.Since(runStart).Milliseconds(),
+			"error", err,
+		)
 		return fmt.Errorf("failed to update run: %w", err)
 	}
 
+	slog.Info("run completed",
+		"event", "run.completed",
+		"run_id", runId,
+		"duration_ms", time.Since(runStart).Milliseconds(),
+	)
+
 	return nil
+}
+
+func openLogWriter(path string) (io.WriteCloser, error) {
+	if path == "" {
+		return os.Stderr, nil
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	return file, nil
+}
+
+func newLogger(writer io.Writer, format string, verbose bool) (*slog.Logger, error) {
+	level := slog.LevelInfo
+	if verbose {
+		level = slog.LevelDebug
+	}
+
+	options := &slog.HandlerOptions{Level: level}
+	switch format {
+	case "text":
+		return slog.New(slog.NewTextHandler(writer, options)), nil
+	case "json":
+		return slog.New(slog.NewJSONHandler(writer, options)), nil
+	default:
+		return nil, fmt.Errorf("--log-format must be one of: text, json")
+	}
 }
 
 func listRunsCmd() *ff.Command {

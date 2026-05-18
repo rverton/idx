@@ -1,9 +1,14 @@
 package idx
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"idx/db"
+	"idx/detect"
+	"log/slog"
+	"strings"
 	"testing"
 )
 
@@ -224,5 +229,100 @@ func TestExploreContinuesWhenTargetFails(t *testing.T) {
 
 	if err := Explore(ctx, config, queries, runID, -1); err != nil {
 		t.Fatalf("Explore() should not fail when a single target fails: %v", err)
+	}
+}
+
+func TestExploreEmitsTargetFailedEvent(t *testing.T) {
+	ctx := context.Background()
+
+	queries, err := db.Connect(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("failed to connect to database: %v", err)
+	}
+
+	runID, err := queries.InsertRun(ctx, 1234567890)
+	if err != nil {
+		t.Fatalf("failed to insert run: %v", err)
+	}
+
+	var buf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	defer slog.SetDefault(oldLogger)
+
+	config := &Config{}
+	config.Targets.SMB = map[string]TargetSMBConfig{
+		"failing-smb": {
+			Hostname: "127.0.0.1",
+			Port:     1,
+		},
+	}
+
+	if err := Explore(ctx, config, queries, runID, -1); err != nil {
+		t.Fatalf("Explore() should not fail when a single target fails: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, `"event":"target.failed"`) {
+		t.Fatalf("expected target.failed event, got: %s", output)
+	}
+}
+
+func TestAnalyzeFuncEmitsFindingEventWithoutMatch(t *testing.T) {
+	ctx := context.Background()
+
+	queries, err := db.Connect(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("failed to connect to database: %v", err)
+	}
+
+	runID, err := queries.InsertRun(ctx, 1234567890)
+	if err != nil {
+		t.Fatalf("failed to insert run: %v", err)
+	}
+
+	var buf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	defer slog.SetDefault(oldLogger)
+
+	analyze := newAnalyzeFunc(ctx, queries, &detect.DefaultDetector, "bitbucket-cloud", "test-target", runID)
+	analyze(detect.Content{
+		Key:  "repo:file.txt",
+		Data: []byte(`api_key = "1234567890abcdef1234567890abcdef"`),
+		Location: []string{
+			"bitbucket-cloud",
+			"repo",
+			"commit",
+			"file.txt",
+		},
+	})
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) == 0 {
+		t.Fatal("expected log output")
+	}
+
+	var finding map[string]any
+	found := false
+	for _, line := range lines {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("failed to decode log line: %v", err)
+		}
+		if event["event"] == "finding.detected" {
+			finding = event
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected finding.detected event, got: %s", buf.String())
+	}
+	if _, ok := finding["match"]; ok {
+		t.Fatalf("finding event should not include raw match: %v", finding)
+	}
+	if strings.Contains(buf.String(), `1234567890abcdef1234567890abcdef`) {
+		t.Fatalf("logs should not include raw match: %s", buf.String())
 	}
 }

@@ -55,8 +55,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				continue
 			}
 
-			slog.Info("start exploring", "target", name)
 			start := time.Now()
+			logTargetStarted(runID, "bitbucket-cloud", name)
 
 			memory := newMemoryStore(ctx, queries, "bitbucket-cloud", name, runID)
 			analyse := newAnalyzeFunc(ctx, queries, &detector, "bitbucket-cloud", name, runID)
@@ -71,10 +71,11 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.Workspaces,
 				throttleDuration(target.ThrottleMs, 100),
 			); err != nil {
-				slog.Error("failed to explore target", "target_type", "bitbucket-cloud", "target", name, "error", err)
+				logTargetFailed(runID, "bitbucket-cloud", name, start, err)
 				continue
 			}
 
+			logTargetCompleted(runID, "bitbucket-cloud", name, start)
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
 		}
 
@@ -87,8 +88,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				continue
 			}
 
-			slog.Info("start exploring", "target", name)
 			start := time.Now()
+			logTargetStarted(runID, "bitbucket-dc", name)
 
 			memory := newMemoryStore(ctx, queries, "bitbucket-dc", name, runID)
 			analyse := newAnalyzeFunc(ctx, queries, &detector, "bitbucket-dc", name, runID)
@@ -103,10 +104,11 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.ApiToken,
 				throttleDuration(target.ThrottleMs, 100),
 			); err != nil {
-				slog.Error("failed to explore target", "target_type", "bitbucket-dc", "target", name, "error", err)
+				logTargetFailed(runID, "bitbucket-dc", name, start, err)
 				continue
 			}
 
+			logTargetCompleted(runID, "bitbucket-dc", name, start)
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
 		}
 		return nil
@@ -118,8 +120,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				continue
 			}
 
-			slog.Info("start exploring", "target", name)
 			start := time.Now()
+			logTargetStarted(runID, "confluence-dc", name)
 
 			memory := newMemoryStore(ctx, queries, "confluence-dc", name, runID)
 			analyse := newAnalyzeFunc(ctx, queries, &detector, "confluence-dc", name, runID)
@@ -135,10 +137,11 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.DisableHistorySearch,
 				throttleDuration(target.ThrottleMs, 100),
 			); err != nil {
-				slog.Error("failed to explore target", "target_type", "confluence-dc", "target", name, "error", err)
+				logTargetFailed(runID, "confluence-dc", name, start, err)
 				continue
 			}
 
+			logTargetCompleted(runID, "confluence-dc", name, start)
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
 		}
 		return nil
@@ -150,8 +153,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				continue
 			}
 
-			slog.Info("start exploring", "target", name)
 			start := time.Now()
+			logTargetStarted(runID, "jira-dc", name)
 
 			memory := newMemoryStore(ctx, queries, "jira-dc", name, runID)
 			analyse := newAnalyzeFunc(ctx, queries, &detector, "jira-dc", name, runID)
@@ -168,10 +171,11 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				target.ProjectKeys,
 				throttleDuration(target.ThrottleMs, 100),
 			); err != nil {
-				slog.Error("failed to explore target", "target_type", "jira-dc", "target", name, "error", err)
+				logTargetFailed(runID, "jira-dc", name, start, err)
 				continue
 			}
 
+			logTargetCompleted(runID, "jira-dc", name, start)
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
 		}
 		return nil
@@ -183,8 +187,8 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				continue
 			}
 
-			slog.Info("start exploring", "target", name)
 			start := time.Now()
+			logTargetStarted(runID, "smb", name)
 
 			memory := newMemoryStore(ctx, queries, "smb", name, runID)
 			analyse := newAnalyzeFunc(ctx, queries, &detector, "smb", name, runID)
@@ -224,16 +228,47 @@ func Explore(ctx context.Context, config *Config, queries *db.Queries, runID int
 				rescanDuration,
 				throttleDuration(target.ThrottleMs, 0),
 			); err != nil {
-				slog.Error("failed to explore target", "target_type", "smb", "target", name, "error", err)
+				logTargetFailed(runID, "smb", name, start, err)
 				continue
 			}
 
+			logTargetCompleted(runID, "smb", name, start)
 			slog.Info("finished exploring", "target", name, "duration", time.Since(start))
 		}
 		return nil
 	})
 
 	return g.Wait()
+}
+
+func logTargetStarted(runID int64, targetType, targetName string) {
+	slog.Info("target started",
+		"event", "target.started",
+		"run_id", runID,
+		"target_type", targetType,
+		"target_name", targetName,
+	)
+}
+
+func logTargetCompleted(runID int64, targetType, targetName string, start time.Time) {
+	slog.Info("target completed",
+		"event", "target.completed",
+		"run_id", runID,
+		"target_type", targetType,
+		"target_name", targetName,
+		"duration_ms", time.Since(start).Milliseconds(),
+	)
+}
+
+func logTargetFailed(runID int64, targetType, targetName string, start time.Time, err error) {
+	slog.Error("target failed",
+		"event", "target.failed",
+		"run_id", runID,
+		"target_type", targetType,
+		"target_name", targetName,
+		"duration_ms", time.Since(start).Milliseconds(),
+		"error", err,
+	)
 }
 
 func newMemoryStore(ctx context.Context, q *db.Queries, targetType, targetName string, runID int64) detect.MemoryStore {
@@ -277,10 +312,15 @@ func newAnalyzeFunc(ctx context.Context, q *db.Queries, detector *detect.Detecto
 
 		for _, finding := range detector.Detect(content) {
 			slog.Info("finding detected",
+				"event", "finding.detected",
+				"run_id", runID,
+				"target_type", targetType,
+				"target_name", targetName,
 				"rule", finding.Rule.Name,
+				"rule_name", finding.Rule.Name,
 				"description", finding.Rule.Description,
 				"content_key", finding.ContentKey,
-				"location", finding.Location,
+				"location", strings.Join(finding.Location, "/"),
 			)
 
 			if err := q.InsertFinding(ctx, db.InsertFindingParams{
@@ -305,10 +345,15 @@ func newAnalyzeFilenameFunc(ctx context.Context, q *db.Queries, detector *detect
 
 		for _, finding := range detector.DetectFilename(filename, contentKey, location) {
 			slog.Info("filename finding detected",
+				"event", "finding.detected",
+				"run_id", runID,
+				"target_type", targetType,
+				"target_name", targetName,
 				"rule", finding.Rule.Name,
+				"rule_name", finding.Rule.Name,
 				"description", finding.Rule.Description,
 				"content_key", finding.ContentKey,
-				"location", finding.Location,
+				"location", strings.Join(finding.Location, "/"),
 			)
 
 			if err := q.InsertFinding(ctx, db.InsertFindingParams{

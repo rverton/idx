@@ -310,3 +310,10 @@ func TestListFindingsCmd_WithFindings(t *testing.T) {
 		}
 	}
 }
+
+func TestNewLoggerRejectsInvalidFormat(t *testing.T) {
+	_, err := newLogger(&bytes.Buffer{}, "yaml", false)
+	if err == nil {
+		t.Fatal("expected invalid log format error")
+	}
+}
