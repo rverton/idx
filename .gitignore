@@ -5,3 +5,5 @@ config.json
 config.json.enc
 dist
 idx.db*
+# Added by goreleaser init:
+dist/
